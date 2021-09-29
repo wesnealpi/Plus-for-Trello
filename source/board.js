@@ -134,7 +134,7 @@ function updateCardsWorker(boardCur, responseParam, bShowBoardTotals, defaultSE,
 
                 var se = parseSE(title, false);
               
-                if (g_dimension == VAL_COMBOVIEWKW_KWONLY) {
+                if (g_dimension != VAL_COMBOVIEWKW_CARDTITLES && g_dimension != VAL_COMBOVIEWKW_ALL) {
                     se.estimate = 0;
                     se.spent = 0;
                 }
@@ -546,7 +546,7 @@ function showSFTDialog() {
 <a href="" class="button-link agile_dialog_Postit_button" id="agile_dialog_SFTWarning_OK">OK</a> <A style="float:right;margin-top:0.5em;" target="_blank" href="http://www.plusfortrello.com/p/notes-for-users-of-scrum-for-trello.html">Read more</A>\
 <br /><input style="vertical-align:middle;margin-bottom:0px;"  type="checkbox"  id="agile_check_SFTDontWarnAgain"><label style="display: inline-block;font-weight:500;"  for="agile_check_SFTDontWarnAgain">Dont show me again</label></input>\
 </dialog>');
-        $("body").append(divDialog);
+        getDialogParent().append(divDialog);
 
         divDialog.find("#agile_dialog_SFTWarning_OK").off("click.plusForTrello").on("click.plusForTrello", function (e) {
             e.preventDefault(); //link click would navigate otherwise
@@ -729,18 +729,24 @@ function doSaveBoardValues(value, key) {
 }
 
 function getCurrentBoard() {
-	var boardNameContainerElem = $(".board-name");
+    if (getIdBoardFromUrl(document.URL) == null && getIdCardFromUrl(document.URL) == null)
+        return null;
+    
+    var boardNameContainerElem = $(".board-name");
 	if (boardNameContainerElem.length == 0) { //timing sensitive
-		boardNameContainerElem = $(".board-header-btn-name");
-		if (boardNameContainerElem.length == 0)
-			return null;
+        boardNameContainerElem = $(".board-header-btn-name");
+        if (boardNameContainerElem.length == 0) // new trello layout 2019-08-12
+            boardNameContainerElem = $(".board-header-btn");
+        if (boardNameContainerElem.length == 0)
+            return null;
 	}
 
-	if (getIdBoardFromUrl(document.URL) == null && getIdCardFromUrl(document.URL) == null)
-	    return null;
+    var boardNameElem = null;
+    
+    if (boardNameContainerElem && boardNameContainerElem.length>0)
+        boardNameElem = boardNameContainerElem.children(".board-header-btn-text");
 
-	var boardNameElem = boardNameContainerElem.children(".board-header-btn-text");
-	if (boardNameElem.length == 0)
+    if (boardNameElem==null || boardNameElem.length == 0)
 		return null;
 	var ret = boardNameElem.text().trim();
 	if (ret == "")

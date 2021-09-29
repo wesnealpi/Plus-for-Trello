@@ -13,42 +13,58 @@ function sendOnceLoadedMessage() {
     sendExtensionMessage({ method: "timerWindowLoaded", idCard: idCard, bClearAndMinimize: bClearAndMinimize }, function (response) { });
 }
 
+var g_msStartWindow=0; //uninitialized
+var g_bReadyForRestore = false;
+const DELAY_START=300;
+
+window.addEventListener("click", function (event) {
+    handleRestoreWindow(true);
+});
+
 window.addEventListener("load", function (event) {
+    g_msStartWindow= Date.now();
+
     var params = getUrlParams();
     var idCard = params.idCard;
+    
     //try to wait until the window is fully painted, Windows needs it so its minimized preview shows the content.
     //this method isnt perfect. I also tried changing an img src and detect its onload but that also didnt always work,
-    //so the current approach is to wait an extra 100ms
-    window.requestAnimationFrame(function () {
+    //so the current approach is to wait extra
         setTimeout(function () {
             sendOnceLoadedMessage();
             setTimeout(function () {
-                window.requestAnimationFrame(function () {
-                    handleRestoreWindow(idCard); //case after lock screen restore
-                });
-            }, 2000); //2000 is a safe time to wait, in case the minimize takes time and another paint happens
-        }, 100);
-    });
+                g_bReadyForRestore=true;
+            }, 100);
+        }, DELAY_START);
 });
 
 
-var g_bHandledRestore = false;
-function handleRestoreWindow(idCard) {
-    if (g_bHandledRestore)
-        return;
-    g_bHandledRestore = true; //first one wins
+
+function handleRestoreWindow(bClicked) {
+    var params = getUrlParams();
+    var idCard = params.idCard;
     sendOnceLoadedMessage();
-    sendExtensionMessage({ method: "timerWindowRestored", idCard: idCard }, function (response) {
-        window.close();
+    var bLoadCard = true;
+    //workarround temporarily for Mac, https://bugs.chromium.org/p/chromium/issues/detail?id=928735
+    if (navigator.userAgent.indexOf("Mac OS")!= -1 && !bClicked)
+        bLoadCard = false;
+    if (bLoadCard)
+        sendExtensionMessage({ method: "timerWindowRestored", idCard: idCard }, function (response) {
     });
 }
 
-window.onfocus = function () {
-    if (document.visibilityState != "visible")
+
+function checkNeedHandleRestoreWindow() {
+    if (!g_bReadyForRestore || g_msStartWindow==0 || document.visibilityState != "visible")
         return;
-    var params = getUrlParams();
-    var idCard = params.idCard;
-    handleRestoreWindow(idCard);
+    if (Date.now()-g_msStartWindow<DELAY_START)
+        return;
+    g_msStartWindow= Date.now();
+    handleRestoreWindow();
+}
+
+window.onfocus = function () {
+    checkNeedHandleRestoreWindow();
 };
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -74,6 +90,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             else {
                 document.title = getTimerElemText(stored.msStart, Date.now(), false, true);
+                checkNeedHandleRestoreWindow();
             }
         });
     }

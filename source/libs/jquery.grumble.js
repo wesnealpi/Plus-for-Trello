@@ -125,7 +125,7 @@ function hasLiveBubbles() {
         },
 
         append: function () {
-            var body = this.context;
+			var body = getDialogParent();
             this.bubble.appendTo(body);
             this.text.appendTo(body);
         },
@@ -470,6 +470,12 @@ function hasLiveBubbles() {
 			offset.top += marginTop + context.scrollTop();
 		} else {
 			offset = $me.offset();
+			var parentD = getDialogParent();
+			var oParent = parentD.offset();
+			offset.left -= oParent.left;
+			offset.top -= oParent.top;
+			if (oParent.top>0)
+				offset.top += 10;  //hack	
 		}
 
 		if (angle > 80 && angle < 100) {
@@ -477,11 +483,15 @@ function hasLiveBubbles() {
 		    offset.left += $me.width();
 		}
 		else if (angle > 260 && angle < 280) {
-		    offset.top += $me.height() / 2;
+			offset.top += $me.height() / 2;
+			offset.left += $me.width();
+		}
+		else if (angle ==0) {
+		    offset.left += $me.width() / 2;
 		}
 		else {
-		    offset.top += $me.height();
-		    offset.left += $me.width() / 2;
+			offset.top += $me.height();
+			offset.left += $me.width() / 2;
 		}
 		return offset;
 	}

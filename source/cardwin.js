@@ -28,6 +28,11 @@ document.addEventListener('DOMContentLoaded', function () {
     
     function loadTrello() {
         elemIframe.empty();
+        window.addEventListener('message', function (event) {
+            if (event && event.isTrusted && event.data && event.data.type && event.data.type == 'trello_card_title') {
+                document.title = event.data.title;
+            }
+        });
         window.TrelloCards.create(url, elemIframe[0], { compact: params.cpt == CARDPOPUPTYPE.POPUP_NOACTIONS });
         setupIframeWatch();
     }

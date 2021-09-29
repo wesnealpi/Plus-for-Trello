@@ -66,7 +66,8 @@ function convertKWListToArray(inputKeywords) {
 var Help = {
     m_bShowing: false, //necessary to catch the possibility of null m_container on a consecutive display call
 	m_container: null,
-    m_extraElems:[],
+	m_extraElems: [],
+	refreshProSections: function () { }, //review: fix dependencies so it can be defined here
 	raw: function (h, container) {
 	    if (!container)
 	        container = this.m_container;
@@ -130,6 +131,44 @@ var Help = {
         var bDisabled = (g_bDisableSync || (g_strServiceUrl == "" && !g_optEnterSEByComment.IsEnabled()));
         return !bDisabled;
     },
+
+    hasLi: function () {
+        return (this.hasLiCS || this.hasLiStripe);
+    },
+    populateSyncProps: function (callback) {
+        var thisObj = this;
+        chrome.storage.sync.get([SYNCPROP_CARDPOPUPTYPE, SYNCPROP_LIDATA, SYNCPROP_LIDATA_STRIPE], function (obj) {
+            if (chrome.runtime.lastError) {
+                console.error(chrome.runtime.lastError.message);
+                return;
+            }
+
+            thisObj.cardPopupType = obj[SYNCPROP_CARDPOPUPTYPE] || CARDPOPUPTYPE.DEFAULT;
+            var liData = obj[SYNCPROP_LIDATA];
+            var liDataStripe = obj[SYNCPROP_LIDATA_STRIPE];
+            thisObj.liDataCS = null;
+            thisObj.liDataStripe = null;
+
+            if (liData) {
+                thisObj.liDataCS = liData;
+                thisObj.hasLiCS = !!(liData.li);
+            } else {
+                thisObj.liDataCS = null;
+                thisObj.hasLiCS = false;
+            }
+
+            if (liDataStripe) {
+                thisObj.liDataStripe = liDataStripe;
+                thisObj.hasLiStripe = !!(liDataStripe.li);
+            } else {
+                thisObj.liDataStripe = null;
+                thisObj.hasLiStripe = false;
+            }
+
+            if (callback)
+                callback();
+        });
+    },
     display: function () {
         if (this.m_bShowing || !g_dbOpened) {
             return;
@@ -178,34 +217,7 @@ var Help = {
 																    sendExtensionMessage({ method: "detectLegacyHistoryRows" },
                                                                     function (response) {
                                                                         thisObj.hasLegacyRows = response.hasLegacyRows;
-                                                                        chrome.storage.sync.get([SYNCPROP_CARDPOPUPTYPE, SYNCPROP_LIDATA, SYNCPROP_LIDATA_STRIPE], function (obj) {
-                                                                            if (chrome.runtime.lastError) {
-                                                                                console.error(chrome.runtime.lastError.message);
-                                                                                return;
-                                                                            }
-
-                                                                            thisObj.cardPopupType = obj[SYNCPROP_CARDPOPUPTYPE] || CARDPOPUPTYPE.DEFAULT;
-                                                                            var liData = obj[SYNCPROP_LIDATA];
-                                                                            var liDataStripe = obj[SYNCPROP_LIDATA_STRIPE];
-                                                                            thisObj.liDataCS = null;
-                                                                            thisObj.liDataStripe = null;
-
-                                                                            if (liData) {
-                                                                                thisObj.liDataCS = liData;
-                                                                                thisObj.hasLiCS = !!(liData.li);
-                                                                            } else {
-                                                                                thisObj.liDataCS = null;
-                                                                                thisObj.hasLiCS = false;
-                                                                            }
-
-                                                                            if (liDataStripe) {
-                                                                                thisObj.liDataStripe = liDataStripe;
-                                                                                thisObj.hasLiStripe = !!(liDataStripe.li);
-                                                                            } else {
-                                                                                thisObj.liDataStripe = null;
-                                                                                thisObj.hasLiStripe = false;
-                                                                            }
-
+                                                                        thisObj.populateSyncProps(function () {
                                                                             thisObj.displayWorker();
                                                                         });
                                                                     });
@@ -231,7 +243,7 @@ var Help = {
 	                var iPound = url.indexOf("#");
 	                if (iPound > 0) {
 	                    //prevent scrolling of body when clicking on a topic at the end
-	                    $('body').scrollTop(0);
+	                    $("body").scrollTop(0);
 	                    url = url.substr(0, iPound);
 	                    window.history.replaceState('data', '', url);
 	                }
@@ -346,7 +358,7 @@ var Help = {
 	        //in that case, while resizing the window, a transparent area starts to cover these fixed elements. After much debugging, I found that when the help pane has no scrollbar, the issue goes away,
             //this is likely related to stacking context changes in chrome, in this case there are two scrollbars: one in trello and another in the help pane.
 	        //This was fixed by moving these two elements out of the pane, make them topmost, and track them with m_extraElems
-	        var containerFixed = $(body);
+			var containerFixed = getDialogParent(true);
 	        var elemClose = helpWin.raw('<img id="agile_help_close" class="agile_close_button agile_almostTopmost1" src="' + chrome.extension.getURL("images/close.png") + '"></img>', containerFixed);
 	        helpWin.m_extraElems.push(elemClose);
 	        elemClose.click(onClosePane);
@@ -462,6 +474,12 @@ Plus is compatible with <A target="_blank" href="https://chrome.google.com/webst
 	        helpWin.para('&nbsp');
 	    }
 
+	    if (helpWin.totalDbMessages > 0) {
+	        helpWin.para('Alert: Error log has entries. <A target="_blank" href="' + chrome.extension.getURL("plusmessages.html") + '">View</A>.').css("color", COLOR_ERROR);
+	        helpWin.para('&nbsp');
+	        helpWin.para('&nbsp');
+	    }
+
 	    if (!g_bFirstTimeUse) {
 	        helpWin.para("<h3>Enable or disable Plus</h3>");
 	        
@@ -555,9 +573,6 @@ Do not use Estimates (just Spent/Points).</input>').children('input:checkbox:fir
 	        helpWin.para('&nbsp');
 	    }
 
-	    if (helpWin.totalDbMessages > 0) {
-	        helpWin.para('Alert: Error log has entries. <A target="_blank" href="' + chrome.extension.getURL("plusmessages.html") + '">View</A>.').css("color", COLOR_ERROR);
-	    }
 	    if (bNotSetUp) {
 	        if (!g_bFirstTimeUse) {
 	            helpWin.para('<div class="agile_box_input_hilite_red" style="display:inline-block;border: 1px solid;border-radius:3px;border-color:RGB(77,77,77);padding:1em;">\
@@ -592,7 +607,7 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 
 	    function addProSection() {
 	        helpWin.para('<h2 id="agile_pro_section">Plus Pro version</h2>');
-	        var paraPro = helpWin.para('<input style="vertical-align:middle;margin-bottom:0px;" type="checkbox" class="agile_checkHelp" value="checkedProVersion" id="agile_plus_checkPro" /><label style="display:inline-block;" for="agile_plus_checkPro">Enable "Pro" features</label>');
+	        var paraPro = helpWin.para('<input style="vertical-align:middle;margin-bottom:0px;" type="checkbox" class="agile_checkHelp" value="checkedProVersion" id="agile_plus_checkPro" /><label style="display:inline-block;color:black !important;" for="agile_plus_checkPro">Enable "Pro" features</label>');
 	        var checkEnablePro = paraPro.children('input:checkbox:first');
 	        var textEnablePro = '<div id="sectionWhyPro">If you love Plus, enable Pro!';
 
@@ -600,14 +615,15 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	            textEnablePro += ' <a href="" id="agile_pro_more">Tell me more</a>';
 
 	        textEnablePro += '<br><div id="agile_pro_more_content" style="display:none;">\
+&bull; Trello card members in reports.<br>\
 &bull; Trello custom fields in reports.<br>\
 &bull; Card labels in reports and charts (view, group, filter, stack).<br>\
 &bull; Custom report columns, extra export options useful for integrations.<br>\
 &bull; Custom board views. Pick which S, E, R boxes show in boards, lists and cards (see Preferences).<br>\
-&bull; Priority support and consulting by our team of power-users using Trello since 2012.<br>\
 <A href="http://www.plusfortrello.com/p/plus-for-trello-pro-version.html" target="_blank">More</A>';
 	        textEnablePro += '<br /></div></div><div id="sectionPayProNow" style="display:none;">➤ <A id="linkPayProNow" href="">Activate your "Pro" license now</A></div>\
 <a href="" id="agile_showLiDetails">Show license details</a> \
+<A id="linkDonate" href="https://www.plusfortrello.com/p/donations.html" target="_blank">❤️ Make a donation to the team!</A></div>\
 <div id="agile_showLiDetails_contents" style="display:none;"><div id="sectionLiDetailsCS" style="display:none;">\
     <p><span class="agile_cs_licData"></span> <a href="" style="margin-left:1em;" id="agile_more_pmt_options" >More payment options</a></p>\
     <div id="agile_more_pmt_options_content" style="display:none;">\
@@ -618,7 +634,7 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 </div>\
 <div id="sectionLiDetailsStripe" style="display:none;">\
     <p><span class="agile_stripe_licData"></span><button style="margin-left:1em;margin-top:0px;" id="editStripeLicense" >Edit license</button></p>\
-    <p>Apply this license to other computers with this URL<span class="agile_stripe_liUrlOwnerNote"> (same as in your license email)</span>:</p>\
+    <p>Apply this license to other computers with this URL<span class="agile_stripe_liUrlOwnerNote"> (its also in your license email)</span>:</p>\
     <input readonly class="agile_stripe_liUrl" size="80" title="copy and email this URL to the team" spellcheck="false" />\
 </div></div>';
 
@@ -638,23 +654,14 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	            paraProEnable.find("#agile_pro_more_content").show();
 	        });
 
-	        function onPayClick(callback) {
-	            if (!helpWin.isSyncEnabled()) {
-	                if (!confirm("You have not yet enabled Plus sync. You can activate the license now but you will need to return to this help pane to enable Sync. Continue activation?"))
-	                    return;
-	            }
-	            Help.close(false);
-	            setTimeout(function () { //save the epileptics!
-	                callback();
-	            }, 1000);
-
+	        function handlePayClick() {
+	            checkLi(true, true, function () {
+	                helpWin.refreshProSections();
+	            });
 	        }
 
-
 	        sectionLiDetailsCS.find("#agile_more_pmt_options_stripe").click(function (ev) {
-	            onPayClick(function () {
-	                checkLi(true, true);
-	            });
+	            handlePayClick();
 	        });
 
 
@@ -679,18 +686,18 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	        btnEditLicense.click(function (ev) {
 	            if (!helpWin.liDataStripe)
 	                return;
-	            onPayClick(function () {
-	                handleStripePay();
+	            handleStripePay(function () {
+	                helpWin.refreshProSections();
 	            });
 	        });
 
-	        function showProSections(bProEnabled, bHilitePay) {
+	        var showProSections = function (bProEnabled, bHilitePay) {
 	            var bShowPay = bProEnabled;
 	            var bShowWhyPro = !bProEnabled;
 	            var bShowLicDetailsCS = bProEnabled && helpWin.hasLiCS;
 	            var bShowLicDetailsStripe = bProEnabled && helpWin.hasLiStripe;
-	            if (helpWin.hasLiCS || helpWin.hasLiStripe)
-	                bShowPay = false;
+	            //if (helpWin.hasLi())
+	            bShowPay = false;
 
 	            if (bShowLicDetailsCS)
 	                sectionLiDetailsCS.find(".agile_cs_licData").html("<b>Chrome store License</b> start date: " + makeDateCustomString(new Date(helpWin.liDataCS.msCreated)) + " <A target='_blank' href='https://payments.google.com/#subscriptionsAndServices'>View</A>");
@@ -701,10 +708,13 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	                if (getCurrentTrelloUser() != helpWin.liDataStripe.userTrello) {
 	                    btnEditLicense.hide();
 	                    sectionLiDetailsStripe.find("#agile_stripe_liUrlOwnerNote").hide();
+	                } else {
+	                    btnEditLicense.show();
+	                    sectionLiDetailsStripe.find("#agile_stripe_liUrlOwnerNote").show();
 	                }
 	            }
 
-	            elemShowHide(btnshowLiDetails, bShowLicDetailsCS || bShowLicDetailsStripe);
+	            elemShowHide(btnshowLiDetails, (bShowLicDetailsCS || bShowLicDetailsStripe) && !$("#agile_showLiDetails_contents").is(":visible"));
 	            elemShowHide(sectionPayProNow, bShowPay);
 	            elemShowHide(sectionLiDetailsCS, bShowLicDetailsCS);
 	            elemShowHide(sectionLiDetailsStripe, bShowLicDetailsStripe);
@@ -712,23 +722,40 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 
 	            if (bShowPay && bHilitePay)
 	                hiliteOnce(elemLinkPay, 5000);
-	        }
+	        };
+
+	        helpWin.refreshProSections = function () {
+	            helpWin.populateSyncProps(function () {
+	                if (helpWin.hasLi()) {
+	                    btnshowLiDetails.hide();
+	                    paraProEnable.find("#agile_showLiDetails_contents").show();
+	                } else {
+	                    btnshowLiDetails.show();
+	                    paraProEnable.find("#agile_showLiDetails_contents").hide();
+	                }
+	                showProSections(g_bProVersion);
+	            });
+	        };
 
 	        showProSections(g_bProVersion);
 
 	        elemLinkPay.click(function () {
-	            onPayClick(function () {
-	                checkLi(true, true);
-	            });
+	            handlePayClick();
 	        });
 
 
 	        checkEnablePro.click(function () {
 	            var bValue = checkEnablePro.is(':checked');
-	            var pair = {};
 
 	            if (!bValue) {
-	                if (!confirm('Are you sure you want to turn off "Pro"?')) {
+	                var msgTurnOffPro = 'Are you sure you want to turn off "Pro"?';
+	                if (helpWin.hasLi()) {
+	                    if (helpWin.hasLiStripe)
+	                        msgTurnOffPro += "\nYou have a Plus 'Pro' license. To also cancel that license click 'Cancel' here, then click 'Show license details', edit the license and set it to '0' total licenses."
+	                    else
+	                        msgTurnOffPro += "\nYou have a Plus 'Pro' license. To also cancel that license click 'Cancel' here, then click 'Show license details' and 'view' go to the Google license page."
+	                }
+	                if (!confirm(msgTurnOffPro)) {
 	                    checkEnablePro[0].checked = true;
 	                    return;
 	                }
@@ -747,18 +774,20 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	                    saveCheck();
 	                    if (bValue) {
 	                        hitAnalytics("ProCheckbox", "enabled");
-	                        showProSections(true, true);
+	                        showProSections(bValue, true);
+							setTimeout(function () {
+								return;
+	                            if (!helpWin.hasLi())
+	                                $("#linkPayProNow").click();
+	                        }, 200);
 	                    } else {
-	                        showProSections(false);
+	                        showProSections(bValue);
 	                    }
 	                });
 	            }
 
 	            function saveCheck() {
-	                pair[LOCALPROP_PRO_VERSION] = bValue;
-	                chrome.storage.local.set(pair, function () {
-	                    if (chrome.runtime.lastError == undefined)
-	                        g_bProVersion = bValue;
+	                setProVersionOption(bValue, function () {
 	                    checkEnablePro[0].checked = g_bProVersion;
 	                    setTimeout(updateBoardUI, 100);
 	                });
@@ -1242,11 +1271,11 @@ Enable "➤ sync" below to see Reports, full Chrome Plus menu, team S/E and use 
 	    helpWin.paraEst('&bull; Estimates <span style="color:blue;">(blue)</span> climb when each milestone starts.');
 	    helpWin.paraEst('&bull; Spent <span style="color:red;">(red)</span> climbs steadily.');
 	    helpWin.paraEst('&bull; Remain <span style="color:green;">(green)</span> goes down to zero at the end of each milestone.');
-	    helpWin.paraEst('&bull; Plus supports end-date projections (dotted green line) based on past spent rates.');
+	    helpWin.paraEst('&bull; Plus supports <a href="" target="_blank">end-date projections</a> (dotted green line) based on past spent rates.');
 	    helpWin.paraEst('&bull; Due dates are automatically added as annotations, or add your own.');
 	    helpWin.paraEst('&bull; Add an annotation with a card S/E row\'s <A href="http://www.plusfortrello.com/p/spent-estimate-card-comment-format.html" target="_blank">note starting with "!"</A>.');
 	    helpWin.paraEst('&bull; Include multiple boards and customize filters.');
-	    helpWin.paraEst('&bull; <A href="http://www.plusfortrello.com/p/about.html#burndowns" target="_blank">More</A>.');
+	    helpWin.paraEst('&bull; <A href="https://trello.com/c/WkUNDkBq/35-burn-downs-timeline-of-due-dates" target="_blank">More</A>.');
 	    helpWin.paraEst('&nbsp');
 	    helpWin.paraEst('<hr class="agile_hr_help"><br>');
 
@@ -2087,7 +2116,7 @@ Accept the "Scrum for Trello" format in card titles: <i>(Estimate) card title [S
 	    helpWin.para('Errors logged: ' + helpWin.totalDbMessages + ' <A target="_blank" href="' + chrome.extension.getURL("plusmessages.html") + '">View</A>');
 	    helpWin.para('&nbsp');
 	    helpWin.para("<button style='float:right'>Close</button>").children("button").click(onClosePane);
-	    var body = $('body');
+		var parent = getDialogParent(true);
 	    container.hide();
 	    var toc = container.find("#tocAgileHelp");
 
@@ -2120,7 +2149,7 @@ Accept the "Scrum for Trello" format in card titles: <i>(Estimate) card title [S
 	            toc.append(li);
 	        }
 	    });
-	    body.append(container);
+	    parent.append(container);
 	    setNoSe(g_bNoSE);
 	    setNoEst(g_bNoEst);
 	    container.fadeIn('fast', function () { container.focus(); });
@@ -2188,7 +2217,7 @@ function showNonMemberBoardsDialog() {
 <br \>\
 <button style="float:right;" id="agile_dialog_showNonMemberBoards_OK">OK</button> \
 </dialog>');
-        $("body").append(divDialog);
+		getDialogParent(true).append(divDialog);
         divDialog = $(".agile_dialog_showNonMemberBoards");
     }
 

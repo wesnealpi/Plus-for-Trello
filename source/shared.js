@@ -28,8 +28,11 @@ var g_language = "en";
 var g_bNoSE = false; //true -> hide S/E features
 var g_bNoEst = false; //true -> hide E features
 var g_bProVersion = false;
+var g_msStartPro = 0; //together with g_bProVersion
 var g_bFromBackground = false;
 var g_msStartPlusUsage = null; //ms of date when plus started being used.
+var g_bReportsUseSystemNumberFormat = true; //review: should parametrize but wasnt easy. Callers must set this before calling report format functions.
+
 const URLPART_PLUSLICENSE = "plus-license";
 const LOCALPROP_NEEDSHOWPRO = "keyNeedShowProInfo";
 const LOCALPROP_DONTSHOWSYNCWARN = "bDontShowAgainSyncWarn";
@@ -46,6 +49,12 @@ var g_entityMap = {
     "'": '&#39;',
     "/": '&#x2F;'
 };
+
+function numToPlusLocaleString(val) {
+    if (g_bReportsUseSystemNumberFormat && typeof(val)=="number")
+        val = val.toLocaleString();
+    return val;
+}
 
 //replace can be a string, or a map function
 //for performace, returns same string when there is no match
@@ -92,6 +101,15 @@ function escapeHtml(string) {
     return replaceString(string, g_regexEscapeHtml, function (s) {
         return g_entityMap[s];
     });
+}
+
+function getDialogParent(bForceBody) {
+    if (!bForceBody) {
+        var par = $(".card-detail-window");
+        if (par.length > 0)
+            return par;
+    }
+    return $("body");
 }
 
 function bHandledDeletedOrNoAccess(status, objRet, statusRetCustom) {
@@ -233,6 +251,7 @@ var SYNCPROP_BOARD_DIMENSION = "board_dimension";
 var SYNCPROP_GLOBALUSER = "global_user";
 var SYNCPROP_KEYWORDS_HOME = "keywords_home";
 var LOCALPROP_PRO_VERSION = "pro_enabled";
+var LOCALPROP_PRO_MSDATEENABLED = "pro_datestart"; //only used for prompting, not the actual date the user enabled it, only the local date as of v5.1.2
 var SYNCPROP_MSLICHECK = "msLiCheck";
 var SYNCPROP_LIDATA = "LiData";  //for chrome store {  msLastCheck, msCreated, li}
 var SYNCPROP_LIDATA_STRIPE = "striLiData"; //for stripe { msLastCheck, msCreated, li, userTrello, emailOwner, quantity, nameCardOwner}
@@ -242,7 +261,7 @@ var SYNCPROP_USERSEBAR_LAST = "userSEBarLast";
 var SYNCPROP_NO_SE = "dontUseSE";
 var SYNCPROP_NO_EST = "dontUseEst";
 var LOCALPROP_EXTENSION_VERSIONSTORE = "chromeStoreExtensionVersion";
-
+var LOCALPROP_bHiliteTimerOnOpenCard = "bHiliteTimerOnOpenCard";
 var g_bStealthSEMode = false; //stealth mode. Only applies when using google spreadsheet sync. use IsStealthMode()
 var g_strServiceUrl = null; //null while not loaded. set to empty string or url NOTE initialized separately in content vs background
 var SEKEYWORD_DEFAULT = "plus!";
@@ -459,7 +478,7 @@ function loadSharedOptions(callback) {
                                          return;
                                      }
                                      g_userTrelloBackground = (obj[PROP_TRELLOUSER] || null);
-                                     g_bProVersion = obj[LOCALPROP_PRO_VERSION] || false;
+                                     g_bProVersion = obj[LOCALPROP_PRO_VERSION] || false; //does not update g_msStartPro
                                      callback();
                                  });
                              });
@@ -566,13 +585,6 @@ function openPlusDb(sendResponse, options) {
 }
 
 
-
-function bAtTrelloHome() {
-    var url = document.URL.toLowerCase();
-    if (url != "https://trello.com/" && url != "https://trello.com/#")
-        return false;
-    return true;
-}
 
 function CreateWaiter(cTasks, callback) {
     var waiter = {
@@ -974,7 +986,10 @@ function getHtmlBurndownTooltipFromRows(bShowTotals, rows, bReverse, header, cal
 	            }
 	        }
 	        if (val === "")
-	            val = "&nbsp;";  //prevent tables with all empty fields (Bad height)
+                val = "&nbsp;";  //prevent tables with all empty fields (Bad height)
+                if (typeof(val)=="number")
+                    val = numToPlusLocaleString(val);
+                
 			return "<td class='"+classesTd+ "'>" + (bNoTruncate ? val : strTruncate(val)) + "</td>";
 		}
 
@@ -1076,12 +1091,12 @@ function getHtmlBurndownTooltipFromRows(bShowTotals, rows, bReverse, header, cal
 	    var sep = "<span class='agile_lighterText'>:</span>";
 	    title += ("&nbsp;" + rows.length + " rows&nbsp;");
 	    if (bSEColumns && !g_bNoSE) {
-	        title += "&nbsp;&nbsp;S" + sep + parseFixedFloat(sTotal);
+	        title += "&nbsp;&nbsp;S" + sep + numToPlusLocaleString(parseFixedFloat(sTotal));
 	        if (!g_bNoEst) {
 	            title += (
-            (bUseEFirst ? "&nbsp;&nbsp;&nbsp;&nbspE 1ˢᵗ" + sep + parseFixedFloat(eFirstTotal) : "") +
-            "&nbsp;&nbsp;&nbsp;&nbspE" + sep + parseFixedFloat(eTotal) + "&nbsp;&nbsp;");
-	            title += "&nbsp;&nbspR" + sep + parseFixedFloat(eTotal - sTotal);
+            (bUseEFirst ? "&nbsp;&nbsp;&nbsp;&nbspE 1ˢᵗ" + sep + numToPlusLocaleString(parseFixedFloat(eFirstTotal)) : "") +
+            "&nbsp;&nbsp;&nbsp;&nbspE" + sep + numToPlusLocaleString(parseFixedFloat(eTotal)) + "&nbsp;&nbsp;");
+	            title += "&nbsp;&nbspR" + sep + numToPlusLocaleString(parseFixedFloat(eTotal - sTotal));
 	        }
 	    }
 	}
@@ -1113,24 +1128,36 @@ function updateSelectedReportTotals() {
     var sCur = 0;
     var eCur = 0;
     var bAdded = false; //simple way of not showing selected s/e when not present (sort by R for example)
+    var charDecimal = (1.1).toLocaleString().substr(1,1);
+    var charSeparator = (5000).toLocaleString().substr(1,1);
+    if (charSeparator=='0')
+        charSeparator = null; //none
+
+    function getReportColumnNumber(text) {
+        if (charSeparator)
+            text = text.replace(charSeparator, '');
+        if (charDecimal && charDecimal != ".")
+            text = text.replace(charDecimal, '.');
+        return parseFloat(text);
+    }   
+
     for (; iSelected < selected.length; iSelected++) {
         var children = selected.eq(iSelected).children("td");
         var iChildren = 0;
         for (; iChildren < children.length; iChildren++) {
             var childCur = children.eq(iChildren);
             if (childCur.hasClass("agile_cell_drilldownS")) {
-                sCur += parseFloat(childCur.text());
+                sCur += getReportColumnNumber(childCur.text());
                 bAdded = true;
-
             }
             else if (childCur.hasClass("agile_cell_drilldownE")) {
-                eCur += parseFloat(childCur.text());
+                eCur += getReportColumnNumber(childCur.text());
                 bAdded = true;
             }
         }
     }
     if (selected.length > 0)
-        $(".agile_selection_totals").html((g_bPopupMode ? "<br />" : "") + "&nbsp;" + selected.length + " Selected "+ (g_bNoSE?"": "&nbsp;&nbsp;S:" + parseFixedFloat(sCur) + "&nbsp;&nbsp;") + (g_bNoSE || g_bNoEst? "" : "&nbsp;&nbsp;E:" + parseFixedFloat(eCur) + "&nbsp;&nbsp;&nbsp;&nbsp;R:" + parseFixedFloat(eCur - sCur)));
+                    $(".agile_selection_totals").html((g_bPopupMode ? "<br />" : "") + "&nbsp;" + selected.length + " Selected "+ (g_bNoSE?"": "&nbsp;&nbsp;S:" + numToPlusLocaleString(parseFixedFloat(sCur)) + "&nbsp;&nbsp;") + (g_bNoSE || g_bNoEst? "" : "&nbsp;&nbsp;E:" + numToPlusLocaleString(parseFixedFloat(eCur)) + "&nbsp;&nbsp;&nbsp;&nbsp;R:" + numToPlusLocaleString(parseFixedFloat(eCur - sCur))));
     else
         $(".agile_selection_totals").empty();
 }
@@ -1724,8 +1751,8 @@ function getTimerElemText(msStart, msEnd, bValues, bNoSeconds) {
     }
 }
 
-function showTimerPopup(idCard) {
-    sendExtensionMessage({ method: "showTimerWindow", idCard: idCard },
+function showTimerPopup(idCard, ptClick) {
+    sendExtensionMessage({ method: "showTimerWindow", idCard: idCard, ptClick: ptClick },
                 function (response) {
                 });
 }
@@ -2163,7 +2190,7 @@ function removeBracketsInNote(note) {
     return note.trim();
 }
 
-function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, customFieldsData) {
+function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, extraFieldsData) {
 
     var ret = [];
     var i = 0;
@@ -2171,14 +2198,18 @@ function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, customFie
     var row = null;
     var cfmetaData = null;
     var cardCF = null;
-
-    if (customFieldsData) {
-        cfmetaData = customFieldsData.cfmetaData;
-        cardCF = customFieldsData.cardData;
+    var bHasExtraData = false;
+    if (extraFieldsData) {
+        bHasExtraData = (Object.keys(extraFieldsData.cardData).length > 0 || Object.keys(extraFieldsData.cfmetaData).length > 0);
+        if (bHasExtraData) {
+            cfmetaData = extraFieldsData.cfmetaData || null;
+            cardCF = extraFieldsData.cardData || null;
+        }
     }
 
     //group
-    if (propertyGroup.length > 0) {
+    const bHasGroup = (propertyGroup.length > 0);
+    if (bHasGroup || bHasExtraData) {
         var map = {};
         var mapCardsPerGroup = {};
         var pGroups = propertyGroup.split("-");
@@ -2202,32 +2233,35 @@ function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, customFie
                     row[propDateTimeString] = makeDateCustomString(dateRow, true);
                 }
 
-                if (cardCF && cfmetaData) {
+                if (cardCF) {
                     //strategy for grouping custom fields is to use the "last" value (like the other fields) when not numeric.
                     //when numeric, it adds them keeping track if a card was already added within each group (as a group can repeat the same card)
                     //checkbox items were previously converted to numeric
                     //numeric values are converted to float in cfData, which is later use to paint each column
                     var cardCFCur = cardCF[row.idCardH];
                     if (cardCFCur) {
-                        for (var idCF in cardCFCur) {
-                            var cfmetaDataCur = cfmetaData[idCF];
-                            var idCFUse = idCF;
-                            if (cfmetaDataCur.idMaster)
-                                idCFUse = cfmetaDataCur.idMaster;
-                            var cardCFCurField = cardCFCur[idCF];
-                            var valCF = "";
-                            if (cardCFCurField)
-                                valCF=cardCFCurField[cfmetaDataCur.type];
-                            if (cfmetaDataCur.type == "number")
-                                valCF = parseFloat(valCF || "0.0") || 0.0;
-                            else if (cfmetaDataCur.type == "date")
-                                valCF = makeDateCustomString(new Date(valCF), true);
-                            if (!row.cfData) {
-                                row.cfData = {};
-                                row.cfCardsGrouped = {}; //during grouping, holds whether a card was already summed
-                                row.cfCardsGrouped[row.idCardH] = true;
+                        if (cfmetaData) {
+                            var cf = cardCFCur.cf;
+                            for (var idCF in cf) {
+                                var cfmetaDataCur = cfmetaData[idCF];
+                                var idCFUse = idCF;
+                                if (cfmetaDataCur.idMaster)
+                                    idCFUse = cfmetaDataCur.idMaster;
+                                var cfCurField = cf[idCF];
+                                var valCF = "";
+                                if (cfCurField)
+                                    valCF = cfCurField[cfmetaDataCur.type];
+                                if (cfmetaDataCur.type == "number")
+                                    valCF = parseFloat(valCF || "0.0") || 0.0;
+                                else if (cfmetaDataCur.type == "date")
+                                    valCF = makeDateCustomString(new Date(valCF), true);
+                                if (!row.cfData) {
+                                    row.cfData = {};
+                                    row.cfCardsGrouped = {}; //during grouping, holds whether a card was already summed
+                                    row.cfCardsGrouped[row.idCardH] = true;
+                                }
+                                row.cfData[idCFUse] = { type: cfmetaDataCur.type, val: valCF };
                             }
-                            row.cfData[idCFUse] = { type: cfmetaDataCur.type, val: valCF };
                         }
                     }
                 }
@@ -2235,93 +2269,96 @@ function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, customFie
                 var key = "";
                 var iProp = 0;
 
-                for (; iProp < pGroups.length; iProp++) {
-                    var propname = pGroups[iProp];
-                    var valCur = "";
-                    if (propname == "dowName") { //review zig: not yet in UI
-                        if (!row.dowName)
-                            row.dowName = getWeekdayName(new Date(row.date * 1000).getDay(), false); //NOTE we modify the row here. needed by reports
-                        valCur = row.dowName;
-                    } else if (propname == "hashtagFirst" || propname == "hashtags") {
-                        if (row.hashtagFirst === undefined) { //splitRows might have already loaded them
-                            var rgHash = getHashtagsFromTitle(row.nameCard || "", true);
-                            if (rgHash.length > 0)
-                                valCur = rgHash[0];
-                            else
-                                valCur = "";
-                            row.hashtagFirst = valCur; //NOTE we modify the row here. needed by reports
+                if (bHasGroup) {
+                    for (; iProp < pGroups.length; iProp++) {
+                        var propname = pGroups[iProp];
+                        var valCur = "";
+                        if (propname == "dowName") { //review zig: not yet in UI
+                            if (!row.dowName)
+                                row.dowName = getWeekdayName(new Date(row.date * 1000).getDay(), false); //NOTE we modify the row here. needed by reports
+                            valCur = row.dowName;
+                        } else if (propname == "hashtagFirst" || propname == "hashtags") {
+                            if (row.hashtagFirst === undefined) { //splitRows might have already loaded them
+                                var rgHash = getHashtagsFromTitle(row.nameCard || "", true);
+                                if (rgHash.length > 0)
+                                    valCur = rgHash[0];
+                                else
+                                    valCur = "";
+                                row.hashtagFirst = valCur; //NOTE we modify the row here. needed by reports
+                            } else {
+                                valCur = row.hashtagFirst;
+                            }
+                        } else if (propname == "labels") {
+                            //when grouping by labels, splitRows has always prepopulated labels, and without html decoration
+                            assert(row.labels !== undefined);
+                            valCur = row.labels;
+                        } else if (propname == "comment") {
+                            valCur = removeBracketsInNote(row.comment);
                         } else {
-                            valCur = row.hashtagFirst;
+                            valCur = row[propname];
                         }
-                    } else if (propname == "labels") {
-                        //when grouping by labels, splitRows has always prepopulated labels, and without html decoration
-                        assert(row.labels !== undefined);
-                        valCur = row.labels;
-                    } else if (propname == "comment") {
-                        valCur = removeBracketsInNote(row.comment); 
-                    } else {
-                        valCur = row[propname];
-                    }
 
-                    key = key + "/" + String(valCur).toLowerCase();
-                }
-                var group = map[key];
-                if (group === undefined)
-                    group = cloneObject(row);
-                else {
-                    //rowid -1 when its a card row (from the query UNION)
-                    if (group.rowid == -1 && row.rowid != -1) {
-                        var sSave = group.spent;
-                        var eSave = group.est;
-                        var eFirstSave = group.estFirst;
-                        var rowidSave = group.rowid;
-                        var dateDueSave = group.dateDue;
-                        var countCardsSave = group.countCards;
-                        var cfDataSave = group.cfData;
-                        var cfCardsGroupedSave = group.cfCardsGrouped;
-                        group = cloneObject(row); //re-clone so rows with s/e always take precedence over card-only rows. REVIEW: investigate & documment why?
-                        group.spent = sSave;
-                        group.est = eSave;
-                        group.estFirst = eFirstSave;
-                        group.rowid = rowidSave;
-                        group.dateDue = dateDueSave;
-                        group.countCards = countCardsSave;
-                        group.cfData = cfDataSave;
-                        group.cfCardsGrouped = cfCardsGroupedSave;
+                        key = key + "/" + String(valCur).toLowerCase();
                     }
-                    group.spent += row.spent;
-                    group.est += row.est;
-                    group.estFirst += row.estFirst;
+                    var group = map[key];
+                    if (group === undefined)
+                        group = cloneObject(row);
+                    else {
+                        //rowid -1 when its a card row (from the query UNION)
+                        if (group.rowid == -1 && row.rowid != -1) {
+                            var sSave = group.spent;
+                            var eSave = group.est;
+                            var eFirstSave = group.estFirst;
+                            var rowidSave = group.rowid;
+                            var dateDueSave = group.dateDue;
+                            var countCardsSave = group.countCards;
+                            var cfDataSave = group.cfData;
+                            var cfCardsGroupedSave = group.cfCardsGrouped;
+                            group = cloneObject(row); //re-clone so rows with s/e always take precedence over card-only rows. REVIEW: investigate & documment why? (maybe to retain note field)
+                            group.spent = sSave;
+                            group.est = eSave;
+                            group.estFirst = eFirstSave;
+                            group.rowid = rowidSave;
+                            group.dateDue = dateDueSave;
+                            group.countCards = countCardsSave;
+                            group.cfData = cfDataSave;
+                            group.cfCardsGrouped = cfCardsGroupedSave;
+                        }
+                        group.spent += row.spent;
+                        group.est += row.est;
+                        group.estFirst += row.estFirst;
 
-                    if (!group.cfData) {
-                        group.cfData = row.cfData;
-                        group.cfCardsGrouped = row.cfCardsGrouped;
-                    }
-                    else if (row.cfData && !group.cfCardsGrouped[row.idCardH]) {
-                        group.cfCardsGrouped[row.idCardH] = true;
-                        for (var idCFCur in row.cfData) {
-                            if (!group.cfData[idCFCur]) {
-                                group.cfData[idCFCur] = row.cfData[idCFCur];
-                            }
-                            else if (row.cfData[idCFCur].type == "number") {
-                                group.cfData[idCFCur].val += row.cfData[idCFCur].val;
+                        if (!group.cfData) {
+                            group.cfData = row.cfData;
+                            group.cfCardsGrouped = row.cfCardsGrouped;
+                        }
+                        else if (row.cfData && !group.cfCardsGrouped[row.idCardH]) {
+                            group.cfCardsGrouped[row.idCardH] = true; //prevent double-counting within the same group
+                            for (var idCFCur in row.cfData) {
+                                if (!group.cfData[idCFCur]) {
+                                    group.cfData[idCFCur] = row.cfData[idCFCur];
+                                }
+                                else if (row.cfData[idCFCur].type == "number") {
+                                    group.cfData[idCFCur].val += row.cfData[idCFCur].val;
+                                }
+                                //review: handle type "date" with min/max 
                             }
                         }
-                    }
 
-                    if (row.rowid !== undefined && row.rowid != ROWID_REPORT_CARD && (group.rowid === undefined || row.rowid > group.rowid)) {
-                        group.rowid = row.rowid; //maintanin rowid so that a "mark all read" on a grouped report will still find the largest rowid
+                        if (row.rowid !== undefined && row.rowid != ROWID_REPORT_CARD && (group.rowid === undefined || row.rowid > group.rowid)) {
+                            group.rowid = row.rowid; //maintanin rowid so that a "mark all read" on a grouped report will still find the largest rowid
+                        }
                     }
-                }
-                map[key] = group;
-                if (bCountCards) {
-                    if (!mapCardsPerGroup[key]) {
-                        group.countCards = 0;
-                        mapCardsPerGroup[key] = {};
-                    }
-                    if (!mapCardsPerGroup[key][row.idCardH]) {
-                        mapCardsPerGroup[key][row.idCardH] = true;
-                        group.countCards++;
+                    map[key] = group;
+                    if (bCountCards) {
+                        if (!mapCardsPerGroup[key]) {
+                            group.countCards = 0;
+                            mapCardsPerGroup[key] = {};
+                        }
+                        if (!mapCardsPerGroup[key][row.idCardH]) {
+                            mapCardsPerGroup[key][row.idCardH] = true;
+                            group.countCards++;
+                        }
                     }
                 }
             }
@@ -2335,8 +2372,10 @@ function groupRows(rowsOrig, propertyGroup, propertySort, bCountCards, customFie
         for (i in map) {
             ret.push(map[i]);
         }
-    } else {
-        ret = cloneObject(rowsOrig); //so sorting doesnt mess with rowsOrig
+    }
+
+    if (!bHasGroup) {
+        ret = cloneObject(rowsOrig); //so sorting doesnt mess with rowsOrig. REVIEW: we should clone the input at the beginning, as currently it modifies the input object above
     }
 
     if (propertySort == "dow") { //review zig: not yet in UI

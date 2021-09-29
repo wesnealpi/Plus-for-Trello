@@ -15,7 +15,7 @@ var g_bLastPlusMenuIconError = false;  //remembers if the icon last drew the red
 var g_mapTimerWindows = {}; // {idWindow, can be undefined or invalid }
 const PROP_LS_cViewedBuyDialog = "cViewedBuyDialog"; //count stored as string
 var g_msUpdateNotificationReceived = 0; //0 means not received
-
+const g_nameMinimizeTimer = "Min";
 chrome.runtime.onInstalled.addListener(function (details) {
     if (details && details.reason && details.reason == "install") {
         handleShowDesktopNotification({
@@ -305,6 +305,7 @@ function handlePlusMenuSync(sendResponse) {
 function handleRequestProPermission(sendResponse) {
     //review: handleCheckChromeStoreToken not used anymore here. we used to check for webstore permissions here
     g_bProVersion = true; //this global is only for background. caller will update storage
+    //g_msStartPro unused in background contexts
     sendResponse({ status: STATUS_OK });
   
 }
@@ -336,8 +337,6 @@ function handleShowAllActiveTimers() {
 
             if (cExisting == cTotal) {
                 strNotification = "No more active timers to show.";
-                if (cMinimized > 0)
-                    strNotification += " Note: some timers are minimized.";
             }
 
             if (strNotification) {
@@ -1209,7 +1208,7 @@ function handleExtensionMessage(request, sendResponseParam, idTabSender, idWindo
             chrome.storage.sync.get([keybDontShowTimerPopups], function (objSync) {
                 g_bDontShowTimerPopups = objSync[keybDontShowTimerPopups] || false;
                 if (!g_bDontShowTimerPopups)
-                    doShowTimerWindow(request.idCard);
+                    doShowTimerWindow(request.idCard,  function (status, properties) {}, request.ptClick);
             });
             sendResponse({ status: STATUS_OK });
         }
@@ -1453,7 +1452,11 @@ function handleTimerWindowRestored(idCard) {
     var map = g_mapTimerWindows[idCard];
     if (!map)
         return;
-    showTimerWindowAsNotification(idCard, map.nameCard, map.nameBoard);
+    var idWindow = map.idWindow;
+    if (idWindow)
+        chrome.windows.update(idWindow, { state: "minimized" });
+    
+    handleNotifClick(idCard);
 }
 
 function handleTimerWindowLoaded(idCard, bClearAndMinimize) {
@@ -1476,10 +1479,8 @@ function handleTimerWindowLoaded(idCard, bClearAndMinimize) {
 }
 
 
-function handleNotifClick(notificationId) {
+function handleNotifClick(idCard) {
     
-    var idCard = idCardFromIdNotification(notificationId);
-
     function stepCardData(resolve, reject) {
         getCardData(null, idCard, "shortLink", false, function (cardData) {
             if (cardData.status == STATUS_OK && !cardData.hasPermission) {
@@ -1493,7 +1494,14 @@ function handleNotifClick(notificationId) {
 
     function openCard(status) {
         assert(status == STATUS_OK);
-        doOpenCardInBrowser(idCard, undefined, true);
+        var pair = {};
+        pair[LOCALPROP_bHiliteTimerOnOpenCard] = true;
+        chrome.storage.local.set(pair, function () {
+            if (chrome.runtime.lastError) {
+                //fall-through
+            }
+            doOpenCardInBrowser(idCard, undefined, true);
+        });
     }
 
     function checkDeletedCard(response) {
@@ -1628,22 +1636,25 @@ function doOpenBoardInBrowser(idBoard) {
     }
 }
 
-function makeTimerPopupWindow(notificationId, bMinimized) {
-    if (!notificationId || notificationId.indexOf(g_prefixTimerNotification) != 0)
-        return;
+function makeTimerPopupWindow(idCard, bMinimized, ptClick) {
     var marginSafety = 20;
     var width = 240;
     var height = 88;
     var topPos = (isTaskbarBottom() ? Math.max(0, window.screen.availHeight - height - marginSafety) : 0);
-    var leftPost = Math.max(0, window.screen.availWidth - width - marginSafety);
-    var idCard = idCardFromIdNotification(notificationId);
+    var leftPos = Math.max(0, window.screen.availWidth - width - marginSafety);
+    
+    if (ptClick) {
+        topPos = ptClick.y+30;
+        leftPos = ptClick.x-Math.round(width/2);
+    }
+
     var data = g_mapTimerWindows[idCard];
     if (!data)
         return;
     data.bClosedByUser = false;
     chrome.windows.create({
         url: chrome.extension.getURL("timerwin.html") + "?idCard=" + idCard + "&nameCard=" + encodeURIComponent(data.nameCard) +
-            "&nameBoard=" + encodeURIComponent(data.nameBoard)+"&minimized="+(bMinimized?"1":"0"), width: width, height: height, type: "popup", left: leftPost, top: topPos
+            "&nameBoard=" + encodeURIComponent(data.nameBoard)+"&minimized="+(bMinimized?"1":"0"), width: width, height: height, type: "popup", left: leftPos, top: topPos
     },
     function (window) {
         if (window) {
@@ -1663,11 +1674,11 @@ function makeCardPopupWindow(idCard, pos, cardPopupType) {
     var height = 224;
     if (cardPopupType == CARDPOPUPTYPE.POPUP_NOACTIONS)
         height = 183;
-    var topPos = window.screen.availHeight/2;
-    var leftPost = screen.availWidth/2;
+    var topPos = Math.round(window.screen.availHeight/2);
+    var leftPos = Math.round(screen.availWidth/2);
     if (pos) {
         topPos = pos.y-100;
-        leftPost = pos.x-100;
+        leftPos = pos.x-100;
     }
 
     var idWindow = g_mapCardToMiniPopupWindow[idCard];
@@ -1703,7 +1714,7 @@ function makeCardPopupWindow(idCard, pos, cardPopupType) {
         }
         chrome.windows.create({
             url: chrome.extension.getURL("cardwin.html") + "?idCard=" + idCard + "&cpt=" + cardPopupType,
-            width: width, height: height, type: "popup", left: leftPost, top: topPos
+            width: width, height: height, type: "popup", left: leftPos, top: topPos
         },
         function (window) {
             if (window) {
@@ -1757,12 +1768,12 @@ function hookNotificationActions() {
         return;
     g_bHookedNotificationsButton = true;
 
-    chrome.notifications.onClicked.addListener(function (notificationId) {
+    function handleNotifClickMain(notificationId) {
         if (!notificationId)
-            return;
+        return;
 
         if (notificationId.indexOf(g_prefixTimerNotification) == 0) {
-            handleNotifClick(notificationId);
+            handleNotifClick(idCardFromIdNotification(notificationId));
         }
         else if (notificationId.indexOf(g_prefixOfflineBoardNotification) == 0) {
             handleOfflineBoardNotificationClick(notificationId);
@@ -1770,20 +1781,22 @@ function hookNotificationActions() {
         else if (notificationId.indexOf(g_prefixOfflineCardNotification) == 0) {
             handleOfflineCardNotificationClick(notificationId);
         }
+    }
+
+    chrome.notifications.onClicked.addListener(function (notificationId) {
+        handleNotifClickMain(notificationId);
     });
 
     chrome.notifications.onClosed.addListener(function (notificationId, byUser) {
-        if (byUser || !notificationId || notificationId.indexOf(g_prefixTimerNotification) != 0)
-            return; //some notifications are not timers
-
-        var idCard = idCardFromIdNotification(notificationId);
-        var data = g_mapTimerWindows[idCard];
-        if (!data.bClosedByUser)
-            makeTimerPopupWindow(notificationId,false);
+        
     });
 
     chrome.notifications.onButtonClicked.addListener(function (notificationId, buttonIndex) {
-        makeTimerPopupWindow(notificationId, true);
+        if (buttonIndex == -1) {
+            handleNotifClickMain(notificationId);
+        } else {
+            makeTimerPopupWindow(idCard, true);
+    }
     });
 }
 
@@ -1800,7 +1813,6 @@ function idCardFromIdNotification(idNotification) {
 }
 
 var g_intervalTimerNotifications = null;
-var g_cTimerUpdates = 0;
 
 function handleTimerNotificationsUpdate() {
     if (!g_intervalTimerNotifications)
@@ -1815,7 +1827,6 @@ function handleTimerNotificationsUpdate() {
                     continue;
                 updateTimerNotification(idNotification);
                 cUpdated++;
-                g_cTimerUpdates++;
             }
             if (cUpdated == 0 && g_intervalTimerNotifications) {
                 clearInterval(g_intervalTimerNotifications);
@@ -1841,7 +1852,7 @@ function handleTimerNotificationsUpdate() {
                 var notification = chrome.notifications.update(idNotification,
                     {
                         title: getTimerElemText(stored.msStart, Date.now(), false, false),
-                        buttons: [{ title: g_cTimerUpdates>2?"":"Minimize", iconUrl: chrome.extension.getURL("images/minimize.png") }]
+                        buttons: [{ title: g_nameMinimizeTimer, iconUrl: chrome.extension.getURL("images/minimize.png") }]
                     }, function (notificationId) {
                        
                     }
@@ -1881,14 +1892,15 @@ function showTimerWindowAsNotification(idCard, nameCard, nameBoard) {
             message: nameCard,
             contextMessage:strTruncate(nameBoard, 40),
             requireInteraction: true,
-            buttons: [{ title: "Minimize", iconUrl: chrome.extension.getURL("images/minimize.png")}]
+            buttons: [{ title: g_nameMinimizeTimer, iconUrl: chrome.extension.getURL("images/minimize.png") }]
         }, function (notificationId) {
             handleTimerNotificationsUpdate();
             }
         );
 }
 
-function doShowTimerWindow(idCard, callbackParam) {
+//ptClick could be undefined
+function doShowTimerWindow(idCard, callbackParam, ptClick) {
     
     var data = g_mapTimerWindows[idCard];
     var bCalledCallback = false;
@@ -1967,8 +1979,12 @@ function doShowTimerWindow(idCard, callbackParam) {
                         return;
                     }
 
-                    showTimerWindowAsNotification(idCard, nameCard, nameBoard);
-                    callback(STATUS_OK, { bExisted: false, bMinimized: false });
+                    //review: no longer use notifications
+                    g_mapTimerWindows[idCard] = { idWindow: null, nameCard: nameCard, nameBoard: nameBoard };
+                    makeTimerPopupWindow(idCard, true, ptClick);
+
+                    //showTimerWindowAsNotification(idCard, nameCard, nameBoard);
+                    callback(STATUS_OK, { bExisted: false, bMinimized: true });
                     return;
                 });
         });

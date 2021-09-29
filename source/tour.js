@@ -40,14 +40,7 @@ function showTourBubble() {
 
 
 function showSeeYaBubble() {
-    var step = {
-        selector: ".agile_tour_link",
-        text: "See you later!",
-        angle: 180,
-        distance: 0,
-        size: 100
-    };
-    showBubbleFromStep(step, true, true, 0, true);
+
 }
 
 function handleHomeTour() {
@@ -100,7 +93,7 @@ function handleHomeTour() {
             id: 7,
             selector: "#headerSEActivities",
             text: "This section shows <br>Spent charts, your recent S/E and cards with Remaining balance.<br><br>Click to show or hide.",
-            angle: 90,
+            angle: 180,
             distance: 0,
             size: 200,
             bSEOnly: true
@@ -141,7 +134,7 @@ function handleHomeTour() {
             },
             {
                 id: 11,
-                selector: ".js-boards-menu",
+                selector: '[data-test-id="header-boards-menu-button"], .js-boards-menu',
                 text: "<b>Go to a board</b><br>to continue the tour",
                 angle: 90+45,
                 distance: 0,
@@ -217,7 +210,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus:".agile_days_box_input",
         text: "<b>card S/E bar</b><br> here you enter<br> <b>S</b>pent and <b>E</b>stimate rows.<br><br>Each <b>S/E row</b> entered shows as a card comment and in reports.",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true
@@ -227,7 +220,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus: ".agile_days_box_input",
         text: "<b>S</b>pent and <b>E</b>stimate<br>units default to 'hours'.<br>If you prefer minutes or days, change it from Preferences in Plus help before entering S/E.",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true
@@ -237,7 +230,7 @@ function handleCardTour() {
           selector: ".agile-se-bar-entry",
           focus: ".agile_days_box_input",
           text: "To track changed estimates, the first <b>S/E row</b><br>entered per user<br>needs an initial <b>E</b>stimate.",
-          angle: 90,
+          angle: 0,
           distance: 0,
           size: 200,
           bSEOnly: true,
@@ -248,7 +241,7 @@ function handleCardTour() {
           selector: ".agile-se-bar-entry",
           focus: ".agile_days_box_input",
           text: "That first S/E row<br>entered per user is<br>their <b>1ˢᵗ Estimate</b><br>and cannot be modified.<br><br>Useful to detect<br>and compare changed estimates using reports.<br>",
-          angle: 90,
+          angle: 0,
           distance: 0,
           size: 200,
           bSEOnly: true,
@@ -259,7 +252,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus: ".agile_days_box_input",
         text: "If you never want to track changed estimates tell Plus in Preferences to 'Allow negative <b>R</b>emaining'",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true,
@@ -270,7 +263,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus: ".agile_days_box_input",
         text: "<b>Spend</b> units by<br>entering more 'S/E rows' with positive <b>S</b>pend and<br>empty <b>E</b>stimate.<br><br>",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true
@@ -281,7 +274,7 @@ function handleCardTour() {
             selector: ".agile-se-bar-entry",
             focus: ".agile_days_box_input",
             text: "You may<br>type both S and E<br>in the same row.<br><br>An empty cell means zero.",
-            angle: 90,
+            angle: 0,
             distance: 0,
             size: 200,
             bSEOnly: true,
@@ -293,7 +286,7 @@ function handleCardTour() {
          selector: ".agile-se-bar-entry",
          focus: ".agile_days_box_input",
          text: "<b>S and E<br>are cummulative</b>.<br><br>Their current sum per user is shown in the table above.<br><br>See the example in Plus help.",
-         angle: 90,
+         angle: 0,
          distance: 0,
          size: 200,
          bSEOnly: true
@@ -303,7 +296,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus: ".agile_days_box_input",
         text: "The best practice is to<br>enter <b>S</b>pent until <b>R</b> is zero<br>(<b>S sum</b> equals <b>E sum</b>).",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true,
@@ -314,7 +307,7 @@ function handleCardTour() {
         selector: ".agile-se-bar-entry",
         focus: ".agile_days_box_input",
         text: "If your Spent would<br>go over the estimate<br>enter more <b>E</b> so <b>R</b><br>doesn't go negative.<br><br>The Plus bar defaults <b>E</b><br>automatically in that case.",
-        angle: 90,
+        angle: 0,
         distance: 0,
         size: 200,
         bSEOnly: true,
@@ -325,7 +318,7 @@ function handleCardTour() {
             selector: ".agile-se-bar-entry",
             focus: ".agile_days_box_input",
             text: "Likewise<br>if you finish a card and<br>still has <b>R</b>emaining,<br>reduce your Estimate<br>(enter negative <b>E</b>)<br>so <b>R</b> gets to zero.<br><br>",
-            angle: 90,
+            angle: 0,
             distance: 0,
             size: 200,
             bSEOnly: true,
@@ -425,7 +418,7 @@ function handleCardTour() {
                    selector: ".agile-se-bar-entry",
                    focus: ".agile_days_box_input",
                    text: "For advanced S/E entry see<br><a style='color:white;' href='http://www.plusfortrello.com/p/spent-estimate-card-comment-format.html' target='_blank'>S/E comment format</a>.",
-                   angle: 90,
+                   angle: 0,
                    distance: 0,
                    size: 200,
                    bSEOnly: true

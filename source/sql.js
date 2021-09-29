@@ -13,8 +13,9 @@ var LS_KEY_detectedErrorLegacyUpgrade = "detectedErrorLegacyUpgrade";
 //ver 3: 3.4.4
 //ver 4: 3.6.x (add labels)
 //ver 5: 3.6.6, fix bug where due dates were not being sync sometimes (due to introduction of search with incomplete card fields)
+//ver 6: 5.1.2, add card dueComplete
 var VERDEEPSYNC = {
-    CURRENT: 5,  //making it bigger will trigger a "deep sync" on all boards. Temporary solution to running deep sync. must be >0
+    CURRENT: 6,  //making it bigger will trigger a "deep sync" on all boards. must be > MINVALID
     MINVALID: 0,
     NOTMEMBER: -1 //hackinsh way to keep a special board state when user is no longer a member of the board. needed to distinguish from zero in first-sync case with existing db data
 };
@@ -727,7 +728,7 @@ function handleCardCreatedUpdatedMoved(data, rowParam, bVerifyBoardIsCardsBoard,
 		        bCardMoved = true; //moved
 		    }
 
-		    if (rowCard.name != row.strCard)
+            if (row.strCard && rowCard.name != row.strCard)
 		        bCardRenamed = true; //renamed
 		} else
 		    bCardCreated = true; //created
@@ -762,33 +763,35 @@ function handleCardCreatedUpdatedMoved(data, rowParam, bVerifyBoardIsCardsBoard,
 	    //go ahead and update the card based on this history row. even if we dont do it here, it will be done eventually by trello sync when
 	    //it processes the card's history (and sets dateSzLastTrello). but doing it here gets the change faster to the user.  
 		if ((bCardRenamed || bCardMoved) && (!g_bEnableTrelloSync || rowCard.dateSzLastTrello == null || rowCard.dateSzLastTrello == dateEarliestTrello)) {
-		    if (bCardRenamed)
-		        handleRecurringChange(tx2, row.idCard, rowCard.name, row.strCard);
-		    rowCard.idBoard = row.idBoard;
-		    rowCard.name = row.strCard;
-		    assert(rowCard.idCard == row.idCard);
-		    strExecute2 = "UPDATE CARDS SET idBoard=?,name=? WHERE idCard=?";
-		    tx2.executeSql(strExecute2, [rowCard.idBoard, rowCard.name, rowCard.idCard],
-                function onOkInsert(tx3, resultSet) {
-                    var x = 1;
-                },
-				function (tx3, error) {
-				    logPlusError(error.message);
-				    return true; //stop
-				});
-
-		    if (bCardMoved) {
-		        //note: the only reason we have an idBoard here is for perf as sqlite doesnt have indexed views.
-		        //this supports moving cards to another board.
-		        strExecute2 = "UPDATE HISTORY SET idBoard=? WHERE idCard=?";
-		        //console.log("idBoard: " + row.idBoard + "  idCard:" + row.idCard);
-		        tx2.executeSql(strExecute2, [row.idBoard, row.idCard], null,
+            if (typeof (row.strCard) !== "undefined") {
+                if (bCardRenamed)
+                    handleRecurringChange(tx2, row.idCard, rowCard.name, row.strCard);
+                rowCard.idBoard = row.idBoard;
+                rowCard.name = row.strCard;
+                assert(rowCard.idCard == row.idCard);
+                strExecute2 = "UPDATE CARDS SET idBoard=?,name=? WHERE idCard=?";
+                tx2.executeSql(strExecute2, [rowCard.idBoard, rowCard.name, rowCard.idCard],
+                    function onOkInsert(tx3, resultSet) {
+                        var x = 1;
+                    },
                     function (tx3, error) {
                         logPlusError(error.message);
                         return true; //stop
-                    }
-                );
-		    }
+                    });
+
+                if (bCardMoved) {
+                    //note: the only reason we have an idBoard here is for perf as sqlite doesnt have indexed views.
+                    //this supports moving cards to another board.
+                    strExecute2 = "UPDATE HISTORY SET idBoard=? WHERE idCard=?";
+                    //console.log("idBoard: " + row.idBoard + "  idCard:" + row.idCard);
+                    tx2.executeSql(strExecute2, [row.idBoard, row.idCard], null,
+                        function (tx3, error) {
+                            logPlusError(error.message);
+                            return true; //stop
+                        }
+                    );
+                }
+            }
 		} else if (bVerifyBoardIsCardsBoard && bCardMoved) {
 		    //correct the history row to have the db card's idBoard
 		    tx2.executeSql("UPDATE HISTORY SET idBoard=? WHERE idHistory=?", [rowCard.idBoard, row.idHistory],
@@ -810,6 +813,9 @@ function handleCardCreatedUpdatedMoved(data, rowParam, bVerifyBoardIsCardsBoard,
 
 function handleRecurringChange(tx, idCard, nameOld, nameNew) {
     var bOldR = (nameOld.indexOf("[R]") >= 0);
+    if (typeof (nameNew) == "undefined" || !nameNew.indexOf)
+        return; //hack: due to an issue before v5.4.92, plus saved pending rows without a card title so it ended up as null.
+                //      its better to assume that [R] didnt change, than to ignore those pending rows.        
     var bNewR = (nameNew.indexOf("[R]") >= 0);
 
     if (!bOldR && bNewR)
@@ -830,7 +836,7 @@ function handleUpdateCardBalances(rowParam, rowidParam, tx, nameCard, eTypeRow) 
 
 			if (resultSet.rowsAffected == 1)
 			    eType = ETYPE_NEW;
-			else if (nameCard.indexOf(TAG_RECURRING_CARD) >= 0) { //use nameCard since row.strCard could be outdated (trello sync case)
+            else if (nameCard && nameCard.indexOf(TAG_RECURRING_CARD) >= 0) { //use nameCard since row.strCard could be outdated (trello sync case)
 			    if (row.est!=0)
 			        eType = ETYPE_NEW; //recurring cards never increase/decrease estimates, all reporting is considered "new"
 			}
@@ -2065,6 +2071,10 @@ function handleOpenDB(options, sendResponseParam, cRetries) {
 
         M.migration(40, function (t) {
             t.executeSql('ALTER TABLE GLOBALS ADD dowDelta INT DEFAULT 0');
+        });
+
+        M.migration(41, function (t) {
+            updateCardRecurringStatusInHistory(t);
         });
 
         M.doIt();

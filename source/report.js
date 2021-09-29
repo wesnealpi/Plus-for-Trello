@@ -86,11 +86,26 @@ const g_columnData = {
     e: ["e"],
     e1st: ["e1st"],
     eType: ["eType"],
-    labels: ["labels","idCardH"],
+    labels: ["labels", "idCardH"],
+    members: ["members","idCardH"],
     note: ["comment"],
     r: ["r"],
     s: ["s"],
     cf: ["cf", "idCardH"] //any custom field
+};
+
+const g_mapColorTrello = {
+green : "#61bd4f",
+yellow: "#f2d600",
+orange: "#ff9f1a", 
+red: "#eb5a46", 
+purple: "#c377e0", 
+blue: "#0079bf", 
+sky: "#00c2e0",
+lime: "#51e898", 
+pink: "#ff78cb", 
+black: "#4d4d4d", 
+nocolor: "#b6bbbf" 
 };
 
 var g_colours = { //thanks http://stackoverflow.com/a/1573141/2213940
@@ -229,7 +244,7 @@ function loadStorageGlobals(callback) {
                 alert(chrome.runtime.lastError.message);
                 return;
             }
-            g_bProVersion = obj[LOCALPROP_PRO_VERSION] || false;
+            g_bProVersion = obj[LOCALPROP_PRO_VERSION] || false; //not using g_msStartPro
             callback();
         });
     });
@@ -770,6 +785,61 @@ function loadAll() {
         return;
     g_bLoaded = true;
 
+    //any params that do not have a UI counterpart will be stripped later, so get them here and set a few global states
+    var params = getUrlParams();
+    var bDisableSort = false;
+    var namedReport = params[g_namedParams.namedReport];
+    var bNeedReplaceState = false;
+    g_bPopupMode = (params["popup"] == "1"); //this one wins over saved one
+    g_bBuildSqlMode = (params["getsql"] == "1");
+
+    function cleanText(text) {
+        text = text.replace(/<br>/g, '\n');
+        text = text.replace(/<br \/>/g, '\n');
+        text = text.replace(/<br\/>/g, '\n');
+        text = text.replace(/<.*>/g, '');
+        return text;
+    }
+
+    if (g_bBuildSqlMode) {
+        $(".agile_report_filter").each(function () {
+            var elem = $(this);
+            var text = elem.prev('.report_tooltip').text();
+            if (text.length == 0)
+                return;
+            elem.prop("title", cleanText(text));
+        });
+    }
+    if (!g_bBuildSqlMode) {
+        $(".agile_report_filter").each(function () {
+            $(this).qtip({
+                content: $(this).prev('.report_tooltip'),
+                hide: {
+                    fixed: true, //to click anchors
+                    delay: 700 //stay up a little so its harder to accidentally move a little the mouse and close it
+                },
+                style: {
+                    classes: "qtip-light"
+                },
+
+                my: 'top left',
+                at: 'bottom right',
+                effect: false,
+                position: {
+                    target: false,
+                    viewport: $(window),
+                    adjust: {
+                        method: 'flip flip'
+                    }
+                },
+                show: {
+                    solo: true
+                },
+            }
+            );
+        });
+    }
+
     $("#selectAllColumns").bsmSelect({
         addItemTarget: 'bottom',
         animate: true,
@@ -804,13 +874,6 @@ function loadAll() {
     });
 
     addTableSorterParsers();
-    //any params that do not have a UI counterpart will be stripped later, so get them here and set a few global states
-    var params = getUrlParams();
-    var bDisableSort = false;
-    var namedReport = params[g_namedParams.namedReport];
-    var bNeedReplaceState = false;
-    g_bPopupMode = (params["popup"] == "1"); //this one wins over saved one
-    g_bBuildSqlMode = (params["getsql"] == "1");
 
     if (!g_bBuildSqlMode)
         hitAnalytics("Reports", "open-" + (g_bPopupMode ? "inPopup" : "window"), true);
@@ -972,7 +1035,7 @@ function loadAll() {
             updateURLPart("stackBy");
             var pGroups = valGroupByOld.split("-");
             if (stackOld && !stack && pGroups.length>1 && pGroups.indexOf(stackOld) >= 0) {
-                if (confirm("Also remove '" + stackOld + "' from the Group-by?")) {
+                if (confirm("Also remove '" + remapGroupByToDisplay(stackOld, true) + "' from the Group-by?")) {
                     pGroups = pGroups.filter(function (group) {
                         return (group && group != stackOld);
                     });
@@ -992,7 +1055,7 @@ function loadAll() {
                 var elemGroup = $("#groupBy");
                 elemGroup.val(valGroupByNew);
                 if (elemGroup.val() != valGroupByNew) {
-                    elemGroup.append(new Option(remapGroupByToDisplay(valGroupByNew), valGroupByNew));
+                    elemGroup.append(new Option(remapGroupByToDisplay(valGroupByNew, true), valGroupByNew));
                     elemGroup.val(valGroupByNew);
                 }
                 updateURLPart("groupBy");
@@ -1493,7 +1556,7 @@ function capitalizeFirstLetter(string) {
     return string[0].toUpperCase() + string.slice(1);
 }
 
-function remapGroupByToDisplay(str) {
+function remapGroupByToDisplay(str, bLoose) {
     var groups = str.split("-");
     var strDisplay = str;
     for (var iGroup = 0; iGroup < groups.length; iGroup++) {
@@ -1506,8 +1569,12 @@ function remapGroupByToDisplay(str) {
                 break;
             }
         }
-        if (!bMapped)
-            return ""; //means error
+        if (!bMapped) {
+            if (bLoose)
+                continue;
+            else
+                return ""; //means error REVIEW zig no caller checking this
+        }
     }
     return groups.join("-");
 }
@@ -1649,8 +1716,8 @@ function loadReport(params) {
         stackBy: "", checkNoColorsChart: "false", checkBGColorChart: "false", colorChartBackground: "#FFFFFF", chartView: g_chartViews.cardcount, keyword: "showhide", groupBy: "", pivotBy: "", orderBy: "date", showZeroR: "", sinceSimple: sinceSimple, weekStart: "", weekEnd: "",
         monthStart: "", monthEnd: "", user: "", team: "", board: "", list: "", card: "", label: "", comment: "", eType: "all", archived: "0", deleted: "0",
         idBoard: "showhide", idCard: "showhide", checkNoCrop: "false", afterRow: "showhide", checkNoCharts: "false",
-        checkAddCustomFields: "false", checkNoLabelColors: "false", checkNoBracketNotes: false, checkOutputCardShortLink: "false", checkOutputBoardShortLink: "false", checkOutputReport: "false", outputFormat: "csv", checkOutputCardIdShort: "false",
-        checkHideAnnotationTexts: "false", checkHideZoomArea: false, checkSyncBeforeQuery: "false", checkNoPartialE: "false"
+        checkAddCustomFields: "false", checkAddMembers: "false", checkNoLabelColors: "false", checkNoBracketNotes: false, checkOutputCardShortLink: "false", checkOutputBoardShortLink: "false", checkOutputReport: "false", outputFormat: "csv", checkOutputCardIdShort: "false",
+        checkHideAnnotationTexts: "false", checkHideZoomArea: false, checkSyncBeforeQuery: "false", checkNoPartialE: "false", checkNoSystemNumberFormat: "false"
     };
 
 
@@ -2227,9 +2294,13 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
     var elems = cloneObject(elemsParam);
     var bSyncBeforeQuery = (elems["checkSyncBeforeQuery"] === "true");
     var bIncludeCustomFields = (elems["checkAddCustomFields"] == "true");
+    var bIncludeMembers = (elems["checkAddMembers"] == "true");
+    var groupBy = elems["groupBy"];
     var customColumns = ((g_bProVersion ? elems.customColumns : "") || "").split(",");
     if (customColumns.length == 1 && customColumns[0] == "")
         customColumns = [];
+    if (!bIncludeMembers && customColumns.indexOf("members") >= 0)
+        bIncludeMembers = true;
     var bCalledBackMain = false;
     function callbackMain(status) {
         if (bCalledBackMain)
@@ -2240,12 +2311,19 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
     }
 
     if (!g_bProVersion) {
-        if (bSyncBeforeQuery || elems.customColumns || bIncludeCustomFields) {
+        if (bSyncBeforeQuery || elems.customColumns || bIncludeCustomFields || bIncludeMembers) {
             bSyncBeforeQuery = false;
             bIncludeCustomFields = false;
+            bIncludeMembers = false;
             if (!bOnlyUrl)
                 sendDesktopNotification("To use 'Pro' report options, enable 'Pro' from the Plus help pane", 7000);
         }
+    }
+
+    if (bIncludeMembers && groupBy.indexOf("idCardH") < 0) {
+        bIncludeMembers = false;
+        if (!bOnlyUrl)
+            sendDesktopNotification("To show card members, include a group by 'card'.", 7000);
     }
 
     //Compact the url for easier reading by removing common defaults
@@ -2260,9 +2338,9 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
         elems["archived"] = "0"; //default to "Not archived"
 
     
-    var rgelemsFalse = ["checkAddCustomFields", "checkNoCrop", "checkBGColorChart", "checkNoCharts", "checkNoColorsChart", "checkNoLabelColors", "checkNoPartialE",
+    var rgelemsFalse = ["checkAddCustomFields", "checkAddMembers", "checkNoCrop", "checkBGColorChart", "checkNoCharts", "checkNoColorsChart", "checkNoLabelColors", "checkNoPartialE",
     "checkSyncBeforeQuery", "checkOutputCardShortLink", "checkOutputBoardShortLink", "checkOutputCSV", 
-    "checkOutputCardIdShort", "checkHideAnnotationTexts", "checkHideZoomArea", "checkNoBracketNotes"];
+    "checkOutputCardIdShort", "checkNoSystemNumberFormat", "checkHideAnnotationTexts", "checkHideZoomArea", "checkNoBracketNotes"];
 
     rgelemsFalse.forEach(function (elem) {
         var obj = elems[elem];
@@ -2320,7 +2398,7 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
             strTitleReport = "Spent";
         $("#report_title_text").text(strTitleReport);
     } else {
-        $("#report_title_text").text("Report - Plus");
+        $("#report_title_text").text("Report - Plus for Trello");
     }
 
     openPlusDb(
@@ -2355,15 +2433,16 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
                             }
                             var rows = response.rows;
                             try {
-                                var groupBy = elems["groupBy"];
                                 var options = {
                                     bNoTruncate: elems["checkNoCrop"] == "true",
                                     bNoLabelColors: g_bProVersion && elems["checkNoLabelColors"] == "true",
                                     bAddCustomFields: bIncludeCustomFields,
+                                    bAddMembers: g_bProVersion && bIncludeMembers,
                                     bExcludeCardsWithPartialE: elems["checkNoPartialE"]=="true",
                                     bOutputCardShortLink: elems["checkOutputCardShortLink"] == "true",
                                     bOutputBoardShortLink: elems["checkOutputBoardShortLink"] == "true",
                                     bOutputCardIdShort: elems["checkOutputCardIdShort"] == "true",
+                                    bNoSystemNumberFormat : elems["checkNoSystemNumberFormat"] == "true",
                                     bNoBracketNotes: elems["checkNoBracketNotes"] == "true",
                                     bCountCards: (groupBy.length > 0),
                                     customColumns: customColumns,
@@ -2372,6 +2451,43 @@ function configReport(elemsParam, bRefreshPage, bOnlyUrl, callbackParam) {
                                 };
 
                                 g_progress.text("Filling...");
+                                function hasEmptyFields(rg) {
+                                    var bEmpty = true;
+                                    rg.forEach(function (item) {
+                                        if (elems[item])
+                                            bEmpty = false;
+                                    });
+
+                                    return bEmpty;
+                                }
+
+                                var bAlertedEmptyResults = false;
+                                if ((localStorage["plus_bFirstTrelloSyncCompleted"] || "") != "true") {
+                                    bAlertedEmptyResults = true;
+                                    sendDesktopNotification("To view reports wait for 'first sync' to complete.", 10000);
+                                }
+
+                                if (elems["idBoard"]) {
+                                    setTimeout(function () {
+                                        var sqlCheckBoard = "SELECT name FROM BOARDS WHERE idBoard = ?";
+                                        
+                                        getSQLReport(sqlCheckBoard, [elems["idBoard"]], function (response) {
+                                            if (response.status != STATUS_OK) {
+                                                return;
+                                            }
+                                            if (response.rows.length > 0) {
+                                                $("#report_title_text").text("Report - "+ response.rows[0].name+" - Plus for Trello");
+                                            } else {
+                                                if (!bAlertedEmptyResults && hasEmptyFields(["afterRow", "card", "board", "comment", "label", "list", "sinceSimple",
+                                                    "weekStart", "weekEnd", "monthStart", "monthEnd", "eType", "idCard", "keyword", "team", "user"])) {
+                                                    sendDesktopNotification("Make sure you are a direct member of this board (not just a Trello team member) to view this report.", 10000);
+                                                }
+                                            }
+                                        });
+                                    }, 100);
+
+                                    
+                                }
 
                                 setReportData(rows, options, elems, sqlQuery, function onOK() {
                                     g_progress.text("");
@@ -2536,6 +2652,7 @@ function fillMapCardsToLabels(rowsIn, options, callback) {
         var mapLabelNames = {};
         var mapLabelColors = {};
         var mapColorFromName = {};
+
         sql = "SELECT idLabel,name,color FROM LABELS WHERE idLabel in (" + idLabels.join() + ")";
         getSQLReport(sql, [], function (response) {
             if (response.status != STATUS_OK) {
@@ -2544,7 +2661,7 @@ function fillMapCardsToLabels(rowsIn, options, callback) {
             }
             response.rows.forEach(function (rowLabel) {
                 var name = escapeHtml(rowLabel.name);
-                var color = rowLabel.color || "#b6bbbf"; //trello's no-color color
+                var color = g_mapColorTrello[rowLabel.color || "nocolor"] || rowLabel.color; 
                 mapLabelNames[rowLabel.idLabel] = name;
                 mapLabelColors[rowLabel.idLabel] = color;
                 if (!mapColorFromName[name])
@@ -2708,20 +2825,20 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
     var bShowCard = (groupBy == "" || groupBy.indexOf("idCardH") >= 0 || groupBy.indexOf("labels") >= 0); //review zig: dup elsewhere
     var bShowLabels = (bShowCard && g_bProVersion && (options.customColumns.length==0 || options.customColumns.indexOf("labels") >= 0));
 
-    stepCustomFields(function (status, cfmetaData, cardData) {
-        var customFieldsData = { cfmetaData: cfmetaData, cardData: cardData };
+    stepExtraFields(function (status, cfmetaData, cardData) {
+        var extraFieldsData = { cfmetaData: cfmetaData, cardData: cardData };
         if (!bShowLabels) {
-            stepGroup(null, customFieldsData);
+            stepGroup(null, extraFieldsData);
         }
         else {
             fillMapCardsToLabels(rowsOrig, options, function (map) {
-                stepGroup(map, customFieldsData);
+                stepGroup(map, extraFieldsData);
             });
         }
     });
 
-    function stepCustomFields(callback) {
-        if (groupBy == "" || !options.bAddCustomFields) {
+    function stepExtraFields(callback) {
+        if (!options.bAddCustomFields && !options.bAddMembers) {
             callback(STATUS_OK, {}, {});
             return;
         }
@@ -2732,7 +2849,7 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
         var prop;
         for (i = 0; i < rowsOrig.length; i++) {
             row = rowsOrig[i];
-            if (row.idBoardH && row.idBoardH != IDBOARD_UNKNOWN) {
+            if (options.bAddCustomFields && row.idBoardH && row.idBoardH != IDBOARD_UNKNOWN) {
                 if (!boards[row.idBoardH])
                     boards[row.idBoardH] = true;
             }
@@ -2742,9 +2859,9 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
             }
         }
 
-        function doneGetCustomFieldsData(status, boardDataIn, cardDataIn) {
+        function doneGetExtraFieldsData(status, boardDataIn, cardDataIn) {
             if (status != STATUS_OK) {
-                sendDesktopNotification("Custom fields missing because: " + status, 5000);
+                sendDesktopNotification("Extra fields missing because: " + status, 5000);
                 callback(status, {}, {});
                 return;
             }
@@ -2789,16 +2906,37 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
             });
             cfmetaDataOut.sortedColumns = rgCFIds;
             var messageErrorLast = "";
+            var cardDataCur = null;
             for (var idCardShort in cardDataIn) {
                 try {
-                    var cf = cardDataIn[idCardShort];
-                    if (cf && cf.customFieldItems) {
-                        cardDataOut[idCardShort] = {};
+                    var cd = cardDataIn[idCardShort];
+                    if (!cd)
+                        continue;
 
-                        cf.customFieldItems.forEach(function (entry) {
+                    function setupCardDataCur() {
+                        cardDataCur = cardDataOut[idCardShort];
+                        if (!cardDataCur) {
+                            cardDataCur = {};
+                            cardDataOut[idCardShort] = cardDataCur;
+                        }
+                    }
+
+                    if (cd.members) {
+                        setupCardDataCur();
+                        cardDataCur.members = [];
+                        cd.members.forEach(function (member) {
+                            cardDataCur.members.push(member.username);
+                        });
+                        cardDataCur.members.sort();
+                    }
+
+                    if (cd.customFieldItems) {
+                        setupCardDataCur();
+                        cardDataCur.cf = {};
+                        cd.customFieldItems.forEach(function (entry) {
                             var bdata = cfmetaDataOut[entry.idCustomField];
                             if (bdata) {
-                                //warning: entry.value can be undefined
+                                //note: entry.value can be undefined
                                 var valSet = (bdata.bCheckbox ? (entry.value && entry.value.checked == "true" ? { number: 1 } : { number: 0 }) : entry.value);
                                 if (bdata.type == "list") {
                                     for (var iOption = 0; iOption < bdata.options.length; iOption++) {
@@ -2812,7 +2950,7 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
                                 }
 
                                 if (valSet)
-                                    cardDataOut[idCardShort][entry.idCustomField] = valSet;
+                                    cardDataCur.cf[entry.idCustomField] = valSet;
                             }
                         });
                     }
@@ -2845,17 +2983,18 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
                     rgCards.push({ id: prop });
                 processThreadedItemsReport(rgCards, null, onProcessItem, doneCards);
                 function doneCards(status) {
-                    g_progress.text("Custom fields step 3 of 3: processing");
+                    g_progress.text("Extra fields step 3 of 3: processing");
                     g_progress.anim("");
-                    doneGetCustomFieldsData(status, boardData, cardData);
+                    doneGetExtraFieldsData(status, boardData, cardData);
                 }
 
                 function onProcessItem(tokenTrello, item, iitem, postProcessItem) {
                     var idCard = item.id;
-                    g_progress.text("Custom fields step 2 of 3: " + Math.round(iitem * 100 / rgCards.length) + "%");
-                    bkPage.getCardData(tokenTrello, idCard, "id&customFieldItems=true", false, function (response) {
+                    g_progress.text("Extra fields step 2 of 3: " + Math.round(iitem * 100 / rgCards.length) + "%");
+                    
+                    bkPage.getCardData(tokenTrello, idCard, "id&customFieldItems=true"+(options.bAddMembers?"&members=true&member_fields=username" : ""), false, function (response) {
                         if (response.status == STATUS_OK)
-                            cardData[idCard] = response.card;
+                                cardData[idCard] = response.card;
                         postProcessItem(response.status, item, iitem);
                     });
                 }
@@ -2869,7 +3008,7 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
 
                 function onProcessItem(tokenTrello, item, iitem, postProcessItem) {
                     var idBoard = item.id;
-                    g_progress.text("Custom fields step 1 of 3: " + Math.round(iitem * 100 / rgBoards.length) + "%");
+                    g_progress.text("Extra fields step 1 of 3: " + Math.round(iitem * 100 / rgBoards.length) + "%");
                     bkPage.getBoardData(tokenTrello, false, idBoard, "/customFields", function (response) {
                         if (response.status == STATUS_OK)
                             boardData[idBoard] = response.board;
@@ -2880,11 +3019,12 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
         });
     }
 
-    function stepGroup(mapCardsToLabels, customFieldsData) {
+    function stepGroup(mapCardsToLabels, extraFieldsData) {
         var bGroupMultipleHashtags = groupBy.indexOf("hashtags") >= 0;
         var bGroupMultipleLabels = groupBy.indexOf("labels") >= 0;
         var cRowsOrigBefore = rowsOrig.length;
-
+        const bHasCFData = (Object.keys(extraFieldsData.cfmetaData).length > 0);
+        const bHasExtraData = (Object.keys(extraFieldsData.cardData).length > 0);
         if (bGroupMultipleHashtags)
             splitRowsBy(rowsOrig, "hashtags");
 
@@ -2897,24 +3037,25 @@ function setReportData(rowsOrig, options, urlParams, sqlQuery, callbackOK) {
         if (rowsOrig.length > cRowsOrigBefore)
             sendDesktopNotification("This report has duplicated counts and S/E sums due to grouping of cards with multiple labels or hashtags.", 8000);
 
-        if (groupBy.length > 0 || (orderBy.length > 0 && orderBy != "date")) //assumes new rows are only inserted when grouping is set
-            rowsGrouped = groupRows(rowsOrig, groupBy, orderBy, bCountCards, customFieldsData);
+        if (groupBy.length > 0 || bHasCFData || bHasExtraData || (orderBy.length > 0 && orderBy != "date")) //assumes new rows are only inserted when grouping is set
+            rowsGrouped = groupRows(rowsOrig, groupBy, orderBy, bCountCards, extraFieldsData);
         if (rowsGrouped.length > 3000 && bPivotByWeek) { //week is the default. else user likely changed it on purpose so dont keep reminding this tip
             const bNoCharts = (urlParams["checkNoCharts"] == "true");
-            var strAlert = "To speed up this report, consider:";
+            var strAlert = "To speed up this report:";
             strAlert += "\n• Set pivot by 'Year'";
 
             if (!bNoCharts)
-                strAlert += "\n• In this report options section, check 'No charts'";
+                strAlert += "\n• Check 'No charts' in Options.";
             sendDesktopNotification(strAlert, 6000);
         }
-        fillDOM(mapCardsToLabels, customFieldsData, options.customColumns, callbackOK);
+        fillDOM(mapCardsToLabels, extraFieldsData, options.customColumns, callbackOK);
     }
 
-    function fillDOM(mapCardsToLabels, customFieldsData, customColumns, callbackOK) {
+    function fillDOM(mapCardsToLabels, extraFieldsData, customColumns, callbackOK) {
         var bShowMonth = (urlParams["sinceSimple"].toUpperCase() == FILTER_DATE_ADVANCED.toUpperCase() && (urlParams["monthStart"].length > 0 || urlParams["monthEnd"].length > 0));
         var headersSpecial = {};
-        var html = getHtmlDrillDownTooltip(customColumns, rowsGrouped, mapCardsToLabels, customFieldsData, headersSpecial, options, groupBy, orderBy, urlParams["eType"], urlParams["archived"], urlParams["deleted"], bShowMonth, sqlQuery.bByROpt);
+        g_bReportsUseSystemNumberFormat= !options.bNoSystemNumberFormat;
+        var html = getHtmlDrillDownTooltip(customColumns, rowsGrouped, mapCardsToLabels, extraFieldsData, headersSpecial, options, groupBy, orderBy, urlParams["eType"], urlParams["archived"], urlParams["deleted"], bShowMonth, sqlQuery.bByROpt);
         var parentScroller = $(".agile_report_container");
         var container = makeReportContainer(html, 1300, true, parentScroller, true);
         updateSelectedReportTotals(); //some reports include row selections
@@ -3105,7 +3246,6 @@ function saveDataChart(rows, urlParams, options) {
             pGroups[iProp] = "nameBoard";
         else if (pCur == "hashtags") {
             pGroups[iProp] = "hashtagFirst";
-            bId = false;
         }
         else
             bId = false;
@@ -3128,7 +3268,7 @@ function saveDataChart(rows, urlParams, options) {
     var dataCountCards = [];
     var mapDomains = {};
     var domains = {};
-
+    var mapSortLabels = {};
     for (var dname in g_dnames) {
         domains[dname]=[];
         mapDomains[dname] = {};
@@ -3162,6 +3302,10 @@ function saveDataChart(rows, urlParams, options) {
             var valProp = rowCur[propNameLoop];
             if (propNameLoop == "comment")
                 valProp = removeBracketsInNote(valProp);
+            else if (propNameLoop == "nameList" && groupBy == "idBoardH-nameList") {
+                if (!mapSortLabels[valProp])
+                    mapSortLabels[valProp] = rowCur.posList;
+            }
             var val = (yField.length > 0 ? g_yFieldSeparator : "") + (valProp || "-");
 
             yField += val;
@@ -3229,7 +3373,8 @@ function saveDataChart(rows, urlParams, options) {
         cPartsGroupFinal: pGroups.length - (iPartGroupExclude >= 0 ? 1 : 0),
         params: urlParams,
         iPartGroupExclude: iPartGroupExclude,
-        strNameBoardSingle: strNameBoardSingle
+        strNameBoardSingle: strNameBoardSingle,
+        mapSortLabels: mapSortLabels
     };
 
     return;
@@ -3256,8 +3401,8 @@ function fillChart(bForce) {
     var elemStack = $("#stackBy");
     var elemStackPre = $("#stackByPre");
     var spanNoColors = $("#spancheckNoColorsChart");
-    var bStacked = (typeChart == g_chartViews.s || typeChart == g_chartViews.e || typeChart == g_chartViews.r);
-    if (typeChart == g_chartViews.cardcount || bStacked) {
+    var bStacked = (typeChart == g_chartViews.s || typeChart == g_chartViews.e || typeChart == g_chartViews.r || typeChart == g_chartViews.cardcount);
+    if (bStacked) {
         elemStackPre.show();
         elemStack.show();
     }
@@ -3304,9 +3449,6 @@ function fillChart(bForce) {
             chartStacked(typeChart, bForce, callbackCancel);
         else if (typeChart == g_chartViews.ser)
             chartSER(bForce, callbackCancel);
-        else if (typeChart == g_chartViews.cardcount) {
-            chartStacked(typeChart, bForce, callbackCancel);
-        }
         else if (typeChart == g_chartViews.e1vse)
             charte1vse(bForce, callbackCancel);
         else if (typeChart == g_chartViews.echange)
@@ -3898,7 +4040,7 @@ function chartStacked(type, bForce, callbackCancel) {
                     mapDlabelsNew[partNew.toLowerCase()] = true;
 
                     if (partNew != "-") {
-                        if (stackBy == "labels") {
+                        if (stackBy == "labels" && !bNoColors) {
                             var colNew = g_mapColorFromName[partNew];
                             if (colNew)
                                 colors[iColor] = colNew;
@@ -3922,6 +4064,7 @@ function chartStacked(type, bForce, callbackCancel) {
         });
         
         if (stackBy != "labels") {
+            var mapSort = g_dataChart.mapSortLabels;
             legendTextsInfo.sort(function (a, b) {
                 var at = a.text;
                 var bt = b.text;
@@ -3932,6 +4075,12 @@ function chartStacked(type, bForce, callbackCancel) {
                         return -1;
                     if (bt == legendEmpty)
                         return 1;
+                }
+                if (mapSort) {
+                    var aMap = mapSort[at];
+                    var bMap = mapSort[bt];
+                    if (typeof (aMap) !== "undefined" && typeof (bMap) !== "undefined")
+                        return (aMap-bMap);
                 }
                 return at.toLowerCase().localeCompare(bt.toLowerCase());
             });
@@ -4418,7 +4567,7 @@ function calculateTables(rows, pivotBy) {
 }
 
 
-function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFieldsData, headersSpecial, options, groupBy, orderBy, eType, archived, deleted, bShowMonth, bByROpt) {
+function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, extraFieldsData, headersSpecial, options, groupBy, orderBy, eType, archived, deleted, bShowMonth, bByROpt) {
     var bOrderR = (orderBy == "remain");
     var header = [];
     const partsGroup = groupBy.split("-");
@@ -4430,8 +4579,8 @@ function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFi
 
     var cfmetaData = null;
 
-    if (customFieldsData)
-        cfmetaData = customFieldsData.cfmetaData;
+    if (extraFieldsData)
+        cfmetaData = extraFieldsData.cfmetaData || null;
 
     function pushSpecialLinkHeader() {
         assert(header.length > 0);
@@ -4452,8 +4601,6 @@ function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFi
     function includeCol(strCol) {
         if (strCol.indexOf(CF_PREFIX) == 0)
             return true;
-        var colData = g_columnData[strCol];
-        assert(colData);
         if (!bCustomColumns)
             return true;
         return (customColumns.indexOf(strCol) >= 0);
@@ -4511,6 +4658,7 @@ function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFi
     var bCardGrouping = (groupBy.indexOf("idCardH") >= 0);
     var bShowBoard = bCustomColumns ? includeCol("board") : (groupBy == "" || groupBy.indexOf("idBoardH") >= 0 || bCardGrouping);
     var bShowCard = bCustomColumns ? includeCol("card") : (groupBy == "" || bCardGrouping);
+    var bShowMembers = bCustomColumns ? includeCol("members") : (g_bProVersion && options.bAddMembers);
     var bShowTeam = bCustomColumns ? includeCol("team") : (groupBy.indexOf("idTeamH") >= 0 || (!g_bPopupMode && bShowBoard));
     var bGroupedByLabels = (groupBy.indexOf("labels") >= 0);
     var bShowLabels = bCustomColumns ? includeCol("labels") : g_bProVersion && (bShowCard || bGroupedByLabels);
@@ -4600,6 +4748,9 @@ function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFi
 
     if (bShowLabels)
         pushHeader(bGroupedByLabels? "Label" : "Labels", "labels");
+
+    if (bShowMembers)
+        pushHeader("Members", "members");
 
     var bShowS = true;
     var bShowEFirst = true;
@@ -4838,6 +4989,18 @@ function getHtmlDrillDownTooltip(customColumns, rows, mapCardsToLabels, customFi
                 pushCol({ name: labels, bNoTruncate: true }); //labels dont truncate otherwise it could not show an entire label if the card has many
             }
         }
+
+        if (bShowMembers) {
+            var mapCard = extraFieldsData.cardData;
+            var nameMembers = "";
+            if (mapCard) {
+                var data = mapCard[row.idCardH];
+                if (data && data.members)
+                    nameMembers = data.members.join(", ");   
+                }
+            pushCol({ name: escapeHtml(nameMembers), bNoTruncate: true });
+        }
+
         var sPush = parseFixedFloat(row.spent);
         var estPush = parseFixedFloat(row.est);
         if (bShowS)

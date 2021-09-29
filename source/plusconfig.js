@@ -64,7 +64,7 @@ You need to sign-in to Chrome to use this sync mode.</p>')));
 
 		container.append(btnOk).append(btnCancel);
 		container.append($('<p>&nbsp</p>'));
-		var body = $('body');
+        var parent = getDialogParent();
 		btnCancel.click(function () {
 			PlusConfig.close(false);
 		});
@@ -272,7 +272,7 @@ You need to sign-in to Chrome to use this sync mode.</p>')));
 		    }
 		});
 		container.hide();
-		body.append(container);
+        parent.append(container);
 		container.fadeIn('fast', function () {
 			input.focus();
 
@@ -329,6 +329,7 @@ function clearAllStorage(callback) {
                 if (g_strServiceUrl)
                     pairsLocal["serviceUrlLast"] = g_strServiceUrl; //restore it to  prevent the "spreadsheet permissions" preface dialog from showing after a reset 
                 pairsLocal[LOCALPROP_PRO_VERSION] = g_bProVersion;
+                pairsLocal[LOCALPROP_PRO_MSDATEENABLED] = g_msStartPro;
                 chrome.storage.local.set(pairsLocal, function () {
                     if (chrome.runtime.lastError) {
                         console.log(chrome.runtime.lastError.message);

@@ -30,11 +30,25 @@ var HelpButton = {
 		return b;
 	},
 	display: function () {
-		var header = $('div#header div.header-user');
-		if (header.find('.' + this.strClass).size() == 0) {
-			var objThis = this.create();
-			header.prepend(objThis);
+		checkHeader(this);
+		function checkHeader(obj) {
+			function retry() {
+				setTimeout(function () { checkHeader(obj); }, 500);
+			}
+			var header = $('#header');
+			if (header.length==0)
+				retry();
+			else {
+				if (header.find('.' + obj.strClass).size() == 0) {
+					var elemMemberMenu = header.find('[data-test-id="header-member-menu-button"], .header-user .js-open-header-member-menu');
+					if (elemMemberMenu.length==0)
+						retry();
+					else
+					elemMemberMenu.parent().prepend(obj.create());
+				}
+			}	
 		}
+		
 	}
 };
 

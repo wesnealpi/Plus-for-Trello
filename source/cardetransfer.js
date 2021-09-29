@@ -63,7 +63,7 @@ function showTransferEDialogWorker(userLast) {
 <td class="agile-etransfer-cell agile-etransfer-tcel-to-r"></td>\
 </table>\
 </dialog>');
-        $("body").append(divDialog);
+        getDialogParent().append(divDialog);
         divDialog = $(".agile_dialog_transferE");
         divDialog.find("#agile_cancel_transferE").click(function (e) {
             divDialog[0].close();

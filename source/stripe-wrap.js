@@ -288,8 +288,10 @@ var g_loaderStripe = {
                 elemSensitive.parentNode.removeChild(elemSensitive);
                 document.getElementById("agile_stripe_ok").style.display = "block";
                 showOverlay(false);
-                if (quantity == 0)
+                if (quantity == 0) {
                     alert("License removed.");
+                    strLicense = ""; //should already be from stripe params, but just in case their API definition changes.
+                }
                 window.postMessage({
                     type: 'agile_stripe_data',
                     license: {

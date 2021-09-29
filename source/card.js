@@ -504,7 +504,7 @@ function promptNewUser(combo, idCardCur, callbackParam) {
             return;
         }
         if (userNew && userNew.toLowerCase().indexOf(DEFAULTGLOBAL_USER.toLowerCase()) != 0 && userNew.toLowerCase().indexOf(g_globalUser.toLowerCase()) != 0) {
-            if (idCardCur != getIdCardFromUrl(document.URL))
+            if (!idCardCur)
                 return; //shouldnt happen and no biggie if does
             board = getCurrentBoard();
             if (!board)
@@ -919,11 +919,11 @@ function getSEDate(callback) {
 <dialog class="agile_dialog_SEDate agile_dialog_DefaultStyle"> \
 <h2>Pick a date</h2><br> \
 <input id="dialog_SEDate_date" type="date"/> \
-<div id="dialog_SEDate_comment"></div> \
+<div id="dialog_SEDate_comment"></div><br> \
 <button id="agile_dialog_SEDate_ok">Select</button> \
 <button id="agile_dialog_SEDate_cancel">Cancel</button> \
 </dialog>');
-        $("body").append(divDialog);
+        getDialogParent().append(divDialog); //dialog inside card fixes issue with trello closing the card on clicks
         divDialog = $(".agile_dialog_SEDate");
 
         elemDate = divDialog.find("#dialog_SEDate_date");
@@ -1227,7 +1227,7 @@ function showSETotalEdit(idCardCur, user) {
 <br>\
 <span class="agile_lightMessage">Use "Modify" or use the "S/E bar" ?<br>Modify a 1ˢᵗ estimate ? See </span> <button class="agile_modify_help" style="display:inline-block;"  href="">help</button> \
 </dialog>');
-        $("body").append(divDialog);
+        getDialogParent().append(divDialog);
         divDialog = $(".agile_dialog_editSETotal");
         divDialog.find("#agile_cancel_SETotal").click(function (e) {
             divDialog[0].close();
@@ -1256,8 +1256,6 @@ function showSETotalEdit(idCardCur, user) {
 
                 var dateNow = new Date();
                 getSEDate(function (dateIn) {
-                    if (!getIdCardFromUrl(document.URL))
-                        return; //rare. user managed to close the card but not the date dialog.
                     var date = 0;
                     if (dateIn)
                         date = getDeltaDates(dateNow, dateIn);
@@ -1685,7 +1683,6 @@ function recalcChecklistTotals() {
         }
     });
     var seChecks = $(".agile_se_checks");
-    //add-comment-section
     s = parseFixedFloat(s);
     e = parseFixedFloat(e);
     if (s == 0 && e == 0) {
@@ -1693,10 +1690,10 @@ function recalcChecklistTotals() {
         return;
     }
 
-    var elemAfter=$(".add-comment-section");
+    var elemAfter = $(".card-detail-activity");
     if (elemAfter.length==0)
         return;
-
+    elemAfter = elemAfter.parent();
     if (seChecks.length == 0) {
         seChecks = $("<div style='cursor:default;margin-left:1em;' class='agile_se_checks' title='This S/E is not included in card totals. It is shown only as an aid.'>");
         seChecks.insertBefore(elemAfter);
@@ -2181,8 +2178,9 @@ function loadCardTimer(idCard) {
 		timerElem.removeAttr('disabled');
 		timerElem.click(function (evt) {
 		    var msEvent = Date.now(); //workarround dont rely on evt.timeStamp (possibly https://code.google.com/p/chromium/issues/detail?id=578243)
-		    testExtension(function () {
-		        handleCardTimerClick(msEvent, hash, timerElem, timerStatus, idCard);
+            var pt = {x:evt.screenX, y:evt.screenY};
+            testExtension(function () {
+		        handleCardTimerClick(msEvent, hash, timerElem, timerStatus, idCard, pt);
 		    });
 		});
 	});
@@ -2191,19 +2189,53 @@ function loadCardTimer(idCard) {
 	return timerElem;
 }
 
+var g_cHilitesTimer = 0; //if its 
+function checkNeedHiliteTimer() {
+    chrome.storage.local.get(LOCALPROP_bHiliteTimerOnOpenCard, function (obj) {
+        var value = obj[LOCALPROP_bHiliteTimerOnOpenCard];
+        if (value)
+            g_cHilitesTimer = 2;
+        else
+            g_cHilitesTimer = 0;
+        var pair = {};
+        pair[LOCALPROP_bHiliteTimerOnOpenCard] = false;
+        chrome.storage.local.set(pair, function () {
+            if (chrome.runtime.lastError) {
+                //fall-through
+            }
+        });
+    });
+}
+
 function updateTimerTooltip(timerElem, bRunning, bRemoveSmallTimerHelp, bUpdateCards) {
     bRemoveSmallTimerHelp = bRemoveSmallTimerHelp || false; //review zig remove
 	bUpdateCards = bUpdateCards || false;
+
 	var title = "";
 	var strClassRunning = "agile_timer_running";
+	var bReplaceClass = false;
+	if (g_cHilitesTimer>0) {
+	    bReplaceClass = true;
+	    g_cHilitesTimer--;
+	}
+	checkNeedHiliteTimer();
+
 	if (bRunning) {
-		timerElem.addClass(strClassRunning);
+	    if (!bReplaceClass)
+	        timerElem.addClass(strClassRunning);
+	    else
+	        timerElem.removeClass(strClassRunning);
 		title = "Click to stop or pause the Plus timer.";
 	}
 	else {
 		timerElem.removeClass(strClassRunning);
 		title = "Click to start the Plus timer.";
 	}
+
+	if (bReplaceClass)
+	    timerElem.addClass("agile_timer_hilite");
+	else
+	    timerElem.removeClass("agile_timer_hilite");
 
 	timerElem.attr('title', title);
 	if (bUpdateCards) {
@@ -2270,7 +2302,7 @@ function updateTimerElemText(timerElem, msStart, msEnd) {
 }
 
 
-function handleCardTimerClick(msDateClick, hash, timerElem, timerStatus, idCard) {
+function handleCardTimerClick(msDateClick, hash, timerElem, timerStatus, idCard, ptClick) {
     chrome.storage.sync.get([SYNCPROP_ACTIVETIMER], function (objActiveTimer) {
         var idCardActiveTimer = null;
         idCardActiveTimer = (objActiveTimer[SYNCPROP_ACTIVETIMER] || null);
@@ -2320,7 +2352,7 @@ function handleCardTimerClick(msDateClick, hash, timerElem, timerStatus, idCard)
                         clearBlinkButtonInterval();
                         $("#plusCardCommentEnterButton").removeClass("agile_box_input_hilite");
                     }
-                    showTimerPopup(idCard);
+                    showTimerPopup(idCard, ptClick);
                 });
             }
             else if (stored.msStart != null && stored.msEnd == null) {
@@ -2454,7 +2486,7 @@ function setNewCommentInCard(idCardCur, keywordUse, //blank uses default (first)
 		return; //should never happen, we had it when the S/E box was created
 	}
 
-	if (!idCardCur || idCardCur != getIdCardFromUrl(document.URL))
+	if (!idCardCur)
 		return; //should never happen
 
 	FindIdBoardFromBoardName(board, idCardCur, function (idBoardFound) {
@@ -2522,26 +2554,22 @@ function helperInsertHistoryRow(dateNow, idCard, idBoard, strBoard, strCard, rgU
 }
 
 function doEnterSEIntoCard(s, e, commentBox, comment, idBoard, idCard, strDays, strBoard, keyword, member, memberTransferTo, onBeforeStartCommit, onFinished) {
-	var elem = null;
-	var titleCur = null;
-	var cleanTitle = null;
-
-	elem = $(".card-detail-title-assist");
-	if (elem.length == 0)
-	    return; //trello html broke.
-	titleCur = elem.text();
-	var se = parseSE(titleCur, true);
-	cleanTitle = se.titleNoSE;
-
-	var titleCardNew = null;
+    var titleCardNew = null;
 	var commentEnter = comment;
+    var elem = $(".card-detail-title-assist");
+    if (elem.length == 0)
+        return; //trello html broke.
+    var titleCur = elem.text();
+    var se = parseSE(titleCur, true);
+    var cleanTitle = se.titleNoSE;
 
 	if (!IsStealthMode() && !memberTransferTo) {
 	    if (!g_optEnterSEByComment.IsEnabled() && g_configData && g_strServiceUrl && g_strServiceUrl != "") {
 	        //legacy option to rename card titles. Keep it on if user has configured google sync and hasnt configured reading S/E from comments
 	        //note that we dont rename card titles if there is no service url. this can affect a few users, but its best because it avoids issues with new
 	        //team users that never enable sync and just start using Plus without any configuration.
-	        var estimation = parseFixedFloat(e + se.estimate);
+            
+            var estimation = parseFixedFloat(e + se.estimate);
 	        var spent = parseFixedFloat(s + se.spent);
 
 	        if (se.bSFTFormat)
@@ -2550,10 +2578,6 @@ function doEnterSEIntoCard(s, e, commentBox, comment, idBoard, idCard, strDays, 
 	            titleCardNew = "(" + spent + "/" + estimation + ") " + cleanTitle;
 	    } else {
 	        commentEnter = comment;
-	        if (false && cleanTitle != titleCur) { //review: disabled this until a better way is implemented
-	            titleCardNew = cleanTitle;
-	            commentEnter = commentEnter + " [plus removed " + parseFixedFloat(se.spent) + "/" + parseFixedFloat(se.estimate) + " from title]";
-	        }
 	    }
 	}
 	
@@ -2909,7 +2933,7 @@ function showSEHelpDialog(section) {
 </ul>\
 </div>\
 </dialog>');
-        $("body").append(divDialog);
+        getDialogParent().append(divDialog);
         divDialog = $(".agile_dialog_SEHelp");
     } 
 

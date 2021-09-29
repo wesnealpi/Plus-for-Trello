@@ -33,6 +33,17 @@
   list-style: none;
 }
 
+.report_tooltip {
+    display: none;
+    font-size:120%;
+    font-family: "Helvetica Neue",Arial,Helvetica,sans-serif !important;
+}
+
+/* overwrite qtip2 style */
+.qtip{
+    max-width: 380px;
+}
+
 .labelGetPro {
         font-size: 10px !important;
         margin-bottom: 3px !important;
@@ -49,6 +60,9 @@ font-size:16px !important;
 background-color: #EEEEEE !important;
 }
 
+.agile_nopointerevents {
+    pointer-events:none;
+}
 .chart-tooltip-custom {
 text-align:center;
 pointer-events:none;
@@ -1638,6 +1652,10 @@ table#tableMarkers td {
     color: #444 !important;
 }
 
+.agile_timer_hilite {
+    background-color: yellow !important;
+}
+
 .agile_all_pressed {
 }
 
@@ -2157,4 +2175,16 @@ float:left;
 
 .agile_cmenu_body_windows {
     margin-right: -17px !important;
+}
+
+
+.agile-pft-boardsettings-icon:before {
+    content: "";
+    display: block;
+    background: url('chrome-extension://__MSG_@@extension_id__/images/iconspent.png') no-repeat;
+    background-size: 20px;
+    width: 20px;
+    height: 20px;
+    float: left;
+    margin: 0 0 0 0;
 }

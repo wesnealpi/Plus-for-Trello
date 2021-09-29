@@ -2,7 +2,7 @@
 
 var g_cMaxCallstack = 400; //400 is a safe size. Larger could cause stack overflow. must be large else is too slow in chrome canary.
 var g_cLimitActionsPerPage = 900; //the larger the better to avoid many round-trips and consuming more quota. trello allows up to 1000 but I feel safer with a little less.
-var g_bProcessCardCommentCopies = false; //Trello optionally copies card comment when making a card copy REVIEW must handle in comment parser
+var g_bProcessCardCommentCopies = false; //Trello optionally copies card comment when making a card copy REVIEW must handle in comment parser. blocking: these dont appear inside board.actions so we would need a full rewrite of the sync algorithm.
 var g_bUpdateSyncNotificationProgress = false;
 
 var SQLQUERY_PREFIX_CARDDATA = "select dateCreated, dateDue, idBoard, name, dateSzLastTrello, idList, idLong, idCard, idShort, bArchived, bDeleted ";
@@ -1086,7 +1086,7 @@ function commitTrelloChanges(alldata, sendResponse) {
 }
 
 
-function bUpdateAlldataCard(actionCur, cards, card, idBoard, dateCard) {
+function bUpdateAlldataCard(actionCur, cards, card, idBoard, dateCard, bForceUpdate) {
     assert(idBoard); //can be unknown
     //actionCur can be null
     //warning: can get called (from search) with partial card details (only labels)
@@ -1116,6 +1116,11 @@ function bUpdateAlldataCard(actionCur, cards, card, idBoard, dateCard) {
             dueDate = Math.round(new Date(card.due).getTime() / 1000);
     }
 
+    if (typeof card.dueComplete != "undefined") {
+        if (card.dueComplete)
+			dueDate=null;
+    }
+
     if (typeAction == "createCard" && actionCur.date)
         dateCreated = Math.round(new Date(actionCur.date).getTime() / 1000);
 
@@ -1127,7 +1132,10 @@ function bUpdateAlldataCard(actionCur, cards, card, idBoard, dateCard) {
         if (idShort)
             cardCur.idShort = idShort;
 
-        if (!cardCur.dateSzLastTrello || dateCard >= cardCur.dateSzLastTrello) {
+        //note on bForceUpdate: sometimes we store a dateSzLastTrello that is larger than it should be.
+        //thuse we sometimes force updating it, ignoring its value, when we know it comes from the latest state
+        //(see stepBoardData note on dateLastActivity)
+        if (bForceUpdate || !cardCur.dateSzLastTrello || dateCard >= cardCur.dateSzLastTrello) {
             if (card.name) //not present on deleteCard
                 cardCur.name = card.name;
 
@@ -1635,7 +1643,7 @@ function processTrelloActions(tokenTrello, alldata, actions, boards, hasBoardAcc
             assert(board);
             var idBoard = alldata.boardsByLong[board.id];
             assert(idBoard); //can be unknown
-            if (!bUpdateAlldataCard(actionCur, alldata.cards, cardAction, idBoard, actionCur.date))
+            if (!bUpdateAlldataCard(actionCur, alldata.cards, cardAction, idBoard, actionCur.date, false))
                 actionCur.old = true;
             stepDone(STATUS_OK);
         }
@@ -1742,13 +1750,13 @@ function processResetCardCommands(tokenTrello, alldata, sendResponse) {
                         return;
                     }
                     
-                    var actionLast = response.items[response.items.length - 1];
-                    dateLast = new Date(actionLast.date);
+                    var actionLastCard = response.items[response.items.length - 1];
+                    dateLast = new Date(actionLastCard.date);
                     //see "Why skip an item and query with a date 1 millisecond  after the last item"
                     dateLast.setTime(dateLast.getTime() + 1);
 
                     setTimeout(function () {
-                        getCardActions(tokenTrello, iitem, cardData.idCard, cardData.idBoard, limit, dateLast.toISOString(), [actionLast.id], callbackGetCardActions);
+                        getCardActions(tokenTrello, iitem, cardData.idCard, cardData.idBoard, limit, dateLast.toISOString(), [actionLastCard.id], callbackGetCardActions);
                     }, MS_TRELLOAPI_WAIT);
                 }
                 else {
@@ -1785,11 +1793,7 @@ function getBoardData(tokenTrello, bOnlyCards, idBoard, params, callback, waitRe
                         logException(ex);
                     }
                 } else {
-                    //boards cant be deleted, but leave it here for future possibility. REVIEW zig: board delete case isnt handled in sync
-                    if (bHandledDeletedOrNoAccess(xhr.status, objRet)) { //no permission to the board, or board deleted already
-                        null; //happy lint
-                    }
-                    else if (xhr.status == 429) { //too many request, reached quota.
+                    if (xhr.status == 429) { //too many request, reached quota.
                         var waitNew = (waitRetry || 500) * 2;
                         if (waitNew < 8000) {
                             bReturned = true;
@@ -1801,6 +1805,18 @@ function getBoardData(tokenTrello, bOnlyCards, idBoard, params, callback, waitRe
                         else {
                             objRet.status = errFromXhr(xhr);
                         }
+                    }
+                    else if (xhr.status == 449 && params && params.includes("cards=all")) { //too many cards. likely archived so try only unarchived
+                        bReturned = true;
+                        var paramsNew = params.replace("cards=all", "cards=open");
+                        setTimeout(function () {
+                            console.log("Plus: Getting only unarchived cards. board: "+idBoard);
+                            getBoardData(tokenTrello, bOnlyCards, idBoard, paramsNew, callback, waitNew);
+                        }, waitNew);
+                    }
+                    else if (bHandledDeletedOrNoAccess(xhr.status, objRet)) { //no permission to the board, or board deleted already
+                        //boards cant be deleted, but leave it here for future possibility. REVIEW zig: board delete case isnt handled in sync
+                        null; //happy lint
                     }
                     else {
                         objRet.status = errFromXhr(xhr);
@@ -2165,17 +2181,18 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                             board.dateLastActivity = boardDb.dateLastActivity; //default to the last known value
                     }
 
-                    if (!board.actions || board.actions.length == 0)
-                        return;
+                    
+                    var actionLast = null; //warning: a copied board has no board.actions so actionLast will be null
                     assert(board.dateLastActivity); //normalized above
                     var idTeamNew = board.idOrganization || null;
 
                     statusProcess.hasBoardAccessDirect[board.shortLink] = true;
 
-
-                    var actionLast = board.actions[0];
-                    if (actionLast.date > board.dateLastActivity)
-                        board.dateLastActivity = actionLast.date; //fix it, as sometimes trello api returns null date (normalized to earliest_trello_date)
+                    if (board.actions && board.actions.length > 0) {
+                        actionLast = board.actions[0];
+                        if (actionLast.date > board.dateLastActivity)
+                            board.dateLastActivity = actionLast.date; //fix it, as sometimes trello api returns null date (normalized to earliest_trello_date)
+                    }
 
                     if (boardDb) {
                         mapBecameNonMemberBoard[board.shortLink] = false;
@@ -2198,15 +2215,15 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                     assert(boardDb.dateLastActivity);
                     assert(boardDb.idBoard == board.shortLink);
 
-                    boardDb.bProcessActions = true;
+                    boardDb.bProcessActions = (actionLast != null);
                     boardDb.methodProcess = { deep: false, needLabels: false, needSearch: false };
 
-                    if (boardDb.dateSzLastTrello && actionLast.date < boardDb.dateSzLastTrello) {
+                    if (boardDb.dateSzLastTrello && boardDb.bProcessActions && actionLast && actionLast.date < boardDb.dateSzLastTrello) {
                         //when cards are deleted or moved, their history will be moved out of the board so the last action date could be smaller.
                         boardDb.bProcessActions = false;
                     }
 
-                    var bSameLastAction = (actionLast.id == boardDb.idActionLast);
+                    var bSameLastAction = (actionLast && actionLast.id == boardDb.idActionLast);
                     var bBoardUpdated = (boardDb.dateLastActivity < board.dateLastActivity);
                     if (bSameLastAction)
                         boardDb.bProcessActions = false;
@@ -2237,6 +2254,7 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                         assert(boardDb.methodProcess);
 
                         if (boardDb.bProcessActions) {
+                            assert(actionLast);
                             var dateLastAction = new Date(actionLast.date);
                             dateLastAction.setTime(dateLastAction.getTime() + 1);
                             boardDb.dateSzBefore = dateLastAction.toISOString();
@@ -2528,7 +2546,7 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                                                 var paramsQuery = null;
 
                                                 if (board.methodProcess.deep) {
-                                                    paramsQuery = "labels=all&label_fields=all&labels_limit=1000&cards=all&card_fields=labels,due,closed,dateLastActivity,idList,shortLink,name,idShort&lists=all&list_fields=closed,name,pos&fields=dateLastActivity";
+                                                    paramsQuery = "labels=all&label_fields=all&labels_limit=1000&cards=all&card_fields=labels,due,dueComplete,closed,dateLastActivity,idList,shortLink,name,idShort&lists=all&list_fields=closed,name,pos&fields=dateLastActivity";
                                                 }
                                                 else if (board.methodProcess.needLabels) {
                                                     //just get labels. currently the board's last activity date its the only way to know a label might have changed (without using webhooks)
@@ -2616,7 +2634,7 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                                                                     populateAllDataCard(cardUnknownBoard); //card belongs to this board, load it into alldata cards/cardsByLong
                                                                 else
                                                                     alldata.cardsByLong[card.id] = card.shortLink;
-                                                                bUpdateAlldataCard(null, alldata.cards, card, idBoard, card.dateLastActivity || szdateNowDefault);
+                                                                bUpdateAlldataCard(null, alldata.cards, card, idBoard, card.dateLastActivity || szdateNowDefault, true);
 
                                                                 //labels
                                                                 if (card.labels) {
@@ -2687,12 +2705,12 @@ function getAllTrelloBoardActions(tokenTrello, alldata, boardsReport, boardsTrel
                                 callPost(response.status);
                                 return;
                             }
-                            var actionLast = response.items[response.items.length - 1];
-                            var dateLast = new Date(actionLast.date);
+                            var actionLastBoard = response.items[response.items.length - 1];
+                            var dateLast = new Date(actionLastBoard.date);
                             //see "Why skip an item and query with a date 1 millisecond  after the last item"
                             dateLast.setTime(dateLast.getTime() + 1);
                             setTimeout(function () {
-                                getBoardActions(tokenTrello, response.iBoard, boardCur.idBoard, limit, dateLast.toISOString(), boardCur.dateSzLastTrello || "", [actionLast.id, boardCur.idActionLast || ""], callbackGetBoardActions);
+                                getBoardActions(tokenTrello, response.iBoard, boardCur.idBoard, limit, dateLast.toISOString(), boardCur.dateSzLastTrello || "", [actionLastBoard.id, boardCur.idActionLast || ""], callbackGetBoardActions);
                             }, MS_TRELLOAPI_WAIT);
                         }
                         else {
@@ -2712,8 +2730,8 @@ function getBoardsLastInfo(tokenTrello, callback) {
 
 function getBoardsLastInfoWorker(tokenTrello, callback, waitRetry) {
     //https://developers.trello.com/advanced-reference/member#get-1-members-idmember-or-username-boards
-    var url = "https://trello.com/1/members/me/boards?organization=true&organization_fields=displayName,name&fields=idOrganization,name,closed,shortLink,dateLastActivity&actions=" + buildBoardActionsList() + "&actions_limit=1&action_fields=date&action_memberCreator=false";
-	var xhr = new XMLHttpRequest();
+    var url = "https://trello.com/1/members/me/boards?filter=all&organization=true&organization_fields=displayName,name&fields=idOrganization,name,closed,shortLink,dateLastActivity&actions=" + buildBoardActionsList() + "&actions_limit=1&action_fields=date&action_memberCreator=false";
+    var xhr = new XMLHttpRequest();
     xhr.withCredentials = true; //not needed but might be chrome bug? placing it for future
     xhr.onreadystatechange = function (e) {
         if (xhr.readyState == 4) {
@@ -2785,7 +2803,7 @@ function doSearchTrelloChanges(bUserInitiated, tokenTrello, idBoardsSearch, cDay
     var url = "https://trello.com/1/search?query=edited:" + cDaysDelta +
         "&modelTypes=cards&cards_limit=" +
         cCardsLimit +
-        "&card_fields=closed,due,idList,name,dateLastActivity,labels,shortLink,idBoard,idShort" +  //warning: idBoard is trello long idBoard
+        "&card_fields=closed,due,dueComplete,idList,name,dateLastActivity,labels,shortLink,idBoard,idShort" +  //warning: idBoard is trello long idBoard
         "&idBoards=" + idBoardsSearch.join();
     if (dscTrello)
         url = url + "&dsc=" + dscTrello;

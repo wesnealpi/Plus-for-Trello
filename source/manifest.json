@@ -1,83 +1,43 @@
 {
-  "name": "__MSG_extName__",
-  "short_name": "Plus for Trello",
-  "version": "5.1.0",
-  "manifest_version": 2,
-  "default_locale": "en",
-  "description": "__MSG_extDescription__",
-  "icons": {
-    "16": "images/icon16.png",
-    "48": "images/icon48.png",
-    "128": "images/icon128.png"
-  },
-  "offline_enabled": true,
-  "background": {
-    "page": "background.html"
-  },
-
-  "homepage_url": "http://www.plusfortrello.com",
-  "oauth2": {
-    "client_id": "147493868263-rau69q6puvkskc83li1neonnbo0aelp9.apps.googleusercontent.com",
-    "scopes": [
-      "https://spreadsheets.google.com/feeds",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/chromewebstore.readonly"
-    ]
-  },
-
-  "browser_action": {
-    "default_icon": {
-      "19": "images/icon19.png"
-    },
-    "default_title": "Plus for Trello",
-    "default_popup": "popup.html"
-  },
-
-  "content_scripts": [
-    {
+   "background": {
+      "page": "background.html"
+   },
+   "browser_action": {
+      "default_icon": {
+         "19": "images/icon19.png"
+      },
+      "default_popup": "popup.html",
+      "default_title": "Plus for Trello"
+   },
+   "content_scripts": [ {
       "all_frames": true,
+      "css": [ "css/style.css", "css/colors.css", "css/tooltip.css", "css/grumble.css", "css/dialog-polyfill.css", "css/tablesorter.css", "css/jquery-ui-custom.min.css", "css/select2.min.css" ],
+      "js": [ "libs/jquery.min.js", "libs/jquery-ui.custom.min.js", "libs/jquery.cookie.js", "libs/jquery.zoomooz.js", "libs/jsapi.js", "libs/formatchart.js", "libs/jquery.grumble.js", "libs/dialog-polyfill.js", "libs/jquery.tablesorter.js", "libs/select2.full.min.js", "shared.js", "sharedmobile.js", "sharedsync.js", "app.js", "card.js", "cardetransfer.js", "labels.js", "labels.js", "language.js", "help.js", "buttons.js", "plus.js", "plusconfig.js", "board.js", "tour.js", "translations.js" ],
       "matches": [ "https://trello.com/*" ],
-      "js": [
-        "libs/jquery.min.js",
-        "libs/jquery-ui.custom.min.js",
-        "libs/jquery.cookie.js",
-        "libs/jquery.zoomooz.js",
-        "libs/jsapi.js",
-        "libs/formatchart.js",
-        "libs/jquery.grumble.js",
-        "libs/dialog-polyfill.js",
-        "libs/jquery.tablesorter.js",
-        "libs/select2.full.min.js",
-        "shared.js",
-        "sharedmobile.js",
-        "sharedsync.js",
-        "app.js",
-        "card.js",
-        "cardetransfer.js",
-        "labels.js",
-        "labels.js",
-        "language.js",
-        "help.js",
-        "buttons.js",
-        "plus.js",
-        "plusconfig.js",
-        "board.js",
-        "tour.js",
-        "translations.js"
-      ],
-      "css": [ "css/style.css", "css/colors.css", "css/tooltip.css", "css/grumble.css", "css/dialog-polyfill.css", "css/tablesorter.css", "css/jquery-ui-custom.min.css", "css/select2.min.css"],
       "run_at": "document_start"
-    }
-  ],
-  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
-  "web_accessible_resources": [
-    "images/*.png",
-    "images/*.gif",
-    "*.html",
-    "manifest.json",
-    "css/images/*.gif",
-    "stripe-wrap.js"
-  ],
-  "optional_permissions": [ "https://*.stripe.com/", "https://*.cloudfunctions.net/", "clipboardWrite", "https://spreadsheets.google.com/", "https://ssl.google-analytics.com/", "https://www.googleapis.com/", "alarms", "gcm", "bookmarks" ],
-  "permissions": ["identity", "storage", "unlimitedStorage", "notifications", "webRequest", "webRequestBlocking", "https://trello.com/", "https://trello.com/1/*"]
+   } ],
+   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
+   "default_locale": "en",
+   "description": "__MSG_extDescription__",
+   "differential_fingerprint": "1.a64ad3d40df4ee5b888aafb554b7f57efee3cf401bca8fbf096e6fdd71f1e0fb",
+   "homepage_url": "https://www.plusfortrello.com",
+   "icons": {
+      "128": "images/icon128.png",
+      "16": "images/icon16.png",
+      "48": "images/icon48.png"
+   },
+   "key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCNE9wstzpWi2eG4KXtpgIIhqimctjlE33gqScjqJzq+XEiE3iGs1bjYHc5vlvpEozXls++j+1Aq6Yhv4qLfHczyHtb7V9gRmtPF2bGCpDyMkq/zJunb3eoBrLeJoixyLolFuzOxXKdVdkS5IBDrwXrEuvlr8+DdtYXoIOfE5PO/wIDAQAB",
+   "manifest_version": 2,
+   "name": "__MSG_extName__",
+   "oauth2": {
+      "client_id": "147493868263-rau69q6puvkskc83li1neonnbo0aelp9.apps.googleusercontent.com",
+      "scopes": [ "https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/chromewebstore.readonly" ]
+   },
+   "offline_enabled": true,
+   "optional_permissions": [ "https://*.stripe.com/", "https://*.cloudfunctions.net/", "clipboardWrite", "https://spreadsheets.google.com/", "https://ssl.google-analytics.com/", "https://www.googleapis.com/", "bookmarks" ],
+   "permissions": [ "identity", "storage", "unlimitedStorage", "notifications", "webRequest", "webRequestBlocking", "https://trello.com/", "https://trello.com/1/*" ],
+   "short_name": "Plus for Trello",
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "6.0.0",
+   "web_accessible_resources": [ "images/*.png", "images/*.gif", "*.html", "manifest.json", "css/images/*.gif", "stripe-wrap.js" ]
 }
